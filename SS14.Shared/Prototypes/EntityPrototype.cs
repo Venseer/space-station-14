@@ -36,6 +36,11 @@ namespace SS14.Shared.GameObjects
         public string Name { get; private set; }
 
         /// <summary>
+        /// The description of the object that shows upon using examine
+        /// </summary>
+        public string Description { get; private set; }
+
+        /// <summary>
         /// The type of entity instantiated when a new entity is created from this template.
         /// </summary>
         public Type ClassType { get; private set; }
@@ -122,6 +127,12 @@ namespace SS14.Shared.GameObjects
             if (mapping.TryGetNode("parent", out node))
             {
                 parentTemp = node.AsString();
+            }
+
+            // DESCRIPTION
+            if (mapping.TryGetNode<YamlMappingNode>("description", out var description))
+            {
+                Description = node.AsString();
             }
 
             // COMPONENTS
@@ -344,19 +355,6 @@ namespace SS14.Shared.GameObjects
             var entitymanager = IoCManager.Resolve<IEntityManager>();
             var entities = entitymanager.GetEntitiesAt(position);
             return !entities.SelectMany(e => e.Prototype._snapFlags).Any(f => _snapFlags.Contains(f));
-        }
-
-        // 100% completely refined & distilled cancer.
-        public IEnumerable<ComponentParameter> GetBaseSpriteParameters()
-        {
-            // Emotional programming.
-            if (Components.TryGetValue("Icon", out var ಠ_ಠ) &&
-                ಠ_ಠ.TryGetNode("icon", out var ಥ_ಥ))
-            {
-                return new[] { new ComponentParameter("icon", ಥ_ಥ.AsString()) };
-            }
-
-            return new ComponentParameter[0];
         }
 
         private void ReadComponent(YamlMappingNode mapping)
