@@ -88,7 +88,7 @@ namespace SS14.Shared.Interfaces.GameObjects
         /// </summary>
         /// <param name="t">The component reference type to check.</param>
         /// <returns></returns>
-        bool HasComponent(Type t);
+        bool HasComponent(Type type);
 
         /// <summary>
         ///     Retrieves the component of the specified type.
@@ -186,7 +186,7 @@ namespace SS14.Shared.Interfaces.GameObjects
         /// </summary>
         /// <param name="owner"></param>
         /// <param name="message">Message to send.</param>
-        void SendNetworkMessage(IComponent owner, ComponentMessage message);
+        void SendNetworkMessage(IComponent owner, ComponentMessage message, INetChannel channel = null);
 
         /// <summary>
         /// Func to handle an incoming network message

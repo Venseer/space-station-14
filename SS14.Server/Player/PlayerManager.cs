@@ -7,9 +7,12 @@ using SS14.Server.Interfaces.GameObjects;
 using SS14.Server.Interfaces.Player;
 using SS14.Shared.Enums;
 using SS14.Shared.GameStates;
+using SS14.Shared.Input;
 using SS14.Shared.Interfaces.GameObjects.Components;
 using SS14.Shared.Interfaces.Network;
+using SS14.Shared.Interfaces.Reflection;
 using SS14.Shared.IoC;
+using SS14.Shared.Log;
 using SS14.Shared.Map;
 using SS14.Shared.Network;
 using SS14.Shared.Network.Messages;
@@ -30,6 +33,10 @@ namespace SS14.Server.Player
 
         [Dependency]
         private readonly IServerNetManager _network;
+        [Dependency]
+        private readonly IReflectionManager _reflectionManager;
+
+        private BoundKeyMap keyMap;
 
         private bool NeedsStateUpdate = false;
 
@@ -60,6 +67,9 @@ namespace SS14.Server.Player
         /// <inheritdoc />
         public void Initialize(int maxPlayers)
         {
+            keyMap = new BoundKeyMap(_reflectionManager);
+            keyMap.PopulateKeyFunctionsMap();
+
             _sessions = new PlayerSession[maxPlayers];
 
             _network.RegisterNetMessage<MsgSession>(MsgSession.NAME);
@@ -68,6 +78,7 @@ namespace SS14.Server.Player
             _network.RegisterNetMessage<MsgServerInfo>(MsgServerInfo.NAME);
             _network.RegisterNetMessage<MsgPlayerListReq>(MsgPlayerListReq.NAME, HandlePlayerListReq);
             _network.RegisterNetMessage<MsgPlayerList>(MsgPlayerList.NAME);
+            _network.RegisterNetMessage<MsgKeyFunctionStateChange>(MsgKeyFunctionStateChange.NAME, HandleKeyFunctionStateChange);
 
             _network.Connecting += OnConnecting;
             _network.Connected += NewSession;
@@ -84,17 +95,14 @@ namespace SS14.Server.Player
             session.AttachToEntity(entity);
         }
 
-        public IPlayerSession GetSessionByChannel(INetChannel client)
+        IPlayerSession IPlayerManager.GetSessionByChannel(INetChannel channel) => GetSessionByChannel(channel);
+        private PlayerSession GetSessionByChannel(INetChannel channel)
         {
             // Should only be one session per client. Returns that session, in theory.
-            return _sessions.FirstOrDefault(s => s?.ConnectedClient == client);
+            return _sessions.FirstOrDefault(s => s?.ConnectedClient == channel);
         }
 
-        /// <summary>
-        ///     Returns the client session of the networkId.
-        /// </summary>
-        /// <param name="index">The id of the client.</param>
-        /// <returns></returns>
+        /// <inheritdoc />
         public IPlayerSession GetSessionById(PlayerIndex index)
         {
             Debug.Assert(0 <= index && index <= MaxPlayers);
@@ -139,13 +147,13 @@ namespace SS14.Server.Player
         /// <param name="position">Position of the circle in world-space.</param>
         /// <param name="range">Radius of the circle in world units.</param>
         /// <returns></returns>
-        public List<IPlayerSession> GetPlayersInRange(LocalCoordinates position, int range)
+        public List<IPlayerSession> GetPlayersInRange(LocalCoordinates worldPos, int range)
         {
             //TODO: This needs to be moved to the PVS system.
             return
                 _sessions.Where(x => x != null &&
                                      x.AttachedEntity != null &&
-                                     position.InRange(x.AttachedEntity.GetComponent<ITransformComponent>().LocalPosition, range))
+                                     worldPos.InRange(x.AttachedEntity.GetComponent<ITransformComponent>().LocalPosition, range))
                     .Cast<IPlayerSession>()
                     .ToList();
         }
@@ -322,6 +330,13 @@ namespace SS14.Server.Player
         public void Dirty()
         {
             NeedsStateUpdate = true;
+        }
+
+        private void HandleKeyFunctionStateChange(MsgKeyFunctionStateChange message)
+        {
+            var function = keyMap.KeyFunctionName(message.KeyFunction);
+            var player = GetSessionByChannel(message.MsgChannel);
+            player.Input.SetFunctionState(function, message.NewState);
         }
     }
 

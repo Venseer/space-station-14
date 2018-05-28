@@ -15,6 +15,7 @@ using SS14.Client.Interfaces.UserInterface;
 using SS14.Client.Log;
 using SS14.Client.State.States;
 using SS14.Shared.ContentPack;
+using SS14.Shared.Input;
 using SS14.Shared.Interfaces;
 using SS14.Shared.Interfaces.Configuration;
 using SS14.Shared.Interfaces.GameObjects;
@@ -111,23 +112,27 @@ namespace SS14.Client
             _resourceCache.LoadLocalResources();
 
             //identical code for server in baseserver
-            if (!AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Content.Shared"))
-                if (!AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Sandbox.Shared"))
-                    Logger.Warning($"[ENG] Could not load any Shared DLL.");
+            if (!AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Content.Shared")
+                && !AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Sandbox.Shared"))
+            {
+                Logger.Warning($"[ENG] Could not load any Shared DLL.");
+            }
 
-            if (!AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Content.Client"))
-                if (!AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Sandbox.Client"))
-                    Logger.Warning($"[ENG] Could not load any Client DLL.");
+            if (!AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Content.Client")
+                && !AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Sandbox.Client"))
+            {
+                Logger.Warning($"[ENG] Could not load any Client DLL.");
+            }
 
             // Call Init in game assemblies.
             AssemblyLoader.BroadcastRunLevel(AssemblyLoader.RunLevel.Init);
 
             eyeManager.Initialize();
-            inputManager.Initialize();
             _serializer.Initialize();
             _userInterfaceManager.Initialize();
             _tileDefinitionManager.Initialize();
             _networkManager.Initialize(false);
+            inputManager.Initialize();
             _console.Initialize();
             _prototypeManager.LoadDirectory(new ResourcePath(@"/Prototypes/"));
             _prototypeManager.Resync();
