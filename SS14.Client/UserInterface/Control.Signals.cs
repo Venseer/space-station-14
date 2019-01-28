@@ -14,6 +14,7 @@ namespace SS14.Client.UserInterface
         private GodotSignalSubscriber0 __focusEnteredSubscriber;
         private GodotSignalSubscriber0 __focusExitedSubscriber;
         private GodotSignalSubscriber0 __treeExitedSubscriber;
+        private GodotSignalSubscriber0 __resizedSubscriber;
 
         protected virtual void SetupSignalHooks()
         {
@@ -40,33 +41,62 @@ namespace SS14.Client.UserInterface
             __treeExitedSubscriber = new GodotSignalSubscriber0();
             __treeExitedSubscriber.Connect(SceneControl, "tree_exited");
             __treeExitedSubscriber.Signal += __treeExitedHook;
+
+            __resizedSubscriber = new GodotSignalSubscriber0();
+            __resizedSubscriber.Connect(SceneControl, "resized");
+            __resizedSubscriber.Signal += __resizedHook;
         }
 
         protected virtual void DisposeSignalHooks()
         {
-            __mouseEnteredSubscriber.Disconnect(SceneControl, "mouse_entered");
-            __mouseEnteredSubscriber.Dispose();
-            __mouseEnteredSubscriber = null;
+            if (__mouseEnteredSubscriber != null)
+            {
+                __mouseEnteredSubscriber.Disconnect(SceneControl, "mouse_entered");
+                __mouseEnteredSubscriber.Dispose();
+                __mouseEnteredSubscriber = null;
+            }
 
-            __mouseExitedSubscriber.Disconnect(SceneControl, "mouse_exited");
-            __mouseExitedSubscriber.Dispose();
-            __mouseExitedSubscriber = null;
+            if (__mouseExitedSubscriber != null)
+            {
+                __mouseExitedSubscriber.Disconnect(SceneControl, "mouse_exited");
+                __mouseExitedSubscriber.Dispose();
+                __mouseExitedSubscriber = null;
+            }
 
-            __guiInputSubscriber.Disconnect(SceneControl, "gui_input");
-            __guiInputSubscriber.Dispose();
-            __guiInputSubscriber = null;
+            if (__guiInputSubscriber != null)
+            {
+                __guiInputSubscriber.Disconnect(SceneControl, "gui_input");
+                __guiInputSubscriber.Dispose();
+                __guiInputSubscriber = null;
+            }
 
-            __focusEnteredSubscriber.Disconnect(SceneControl, "focus_entered");
-            __focusEnteredSubscriber.Dispose();
-            __focusEnteredSubscriber = null;
+            if (__focusEnteredSubscriber != null)
+            {
+                __focusEnteredSubscriber.Disconnect(SceneControl, "focus_entered");
+                __focusEnteredSubscriber.Dispose();
+                __focusEnteredSubscriber = null;
+            }
 
-            __focusExitedSubscriber.Disconnect(SceneControl, "focus_exited");
-            __focusExitedSubscriber.Dispose();
-            __focusExitedSubscriber = null;
+            if (__focusExitedSubscriber != null)
+            {
+                __focusExitedSubscriber.Disconnect(SceneControl, "focus_exited");
+                __focusExitedSubscriber.Dispose();
+                __focusExitedSubscriber = null;
+            }
 
-            __treeExitedSubscriber.Disconnect(SceneControl, "tree_exited");
-            __treeExitedSubscriber.Dispose();
-            __treeExitedSubscriber = null;
+            if (__treeExitedSubscriber != null)
+            {
+                __treeExitedSubscriber.Disconnect(SceneControl, "tree_exited");
+                __treeExitedSubscriber.Dispose();
+                __treeExitedSubscriber = null;
+            }
+
+            if (__resizedSubscriber != null)
+            {
+                __resizedSubscriber.Disconnect(SceneControl, "resized");
+                __resizedSubscriber.Dispose();
+                __resizedSubscriber = null;
+            }
         }
 
         private void __mouseEnteredHook()
@@ -81,7 +111,7 @@ namespace SS14.Client.UserInterface
 
         private void __guiInputHook(object ev)
         {
-            HandleGuiInput((Godot.InputEvent)ev);
+            HandleGuiInput((Godot.InputEvent) ev);
         }
 
         private void __focusEnteredHook()
@@ -98,6 +128,11 @@ namespace SS14.Client.UserInterface
         {
             // Eh maybe make a separate event later.
             FocusExited();
+        }
+
+        private void __resizedHook()
+        {
+            Resized();
         }
     }
 }

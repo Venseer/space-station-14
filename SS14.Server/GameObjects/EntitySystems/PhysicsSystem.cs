@@ -1,27 +1,29 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using SS14.Server.Interfaces.Timing;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.System;
+using SS14.Shared.GameObjects.Systems;
 using SS14.Shared.Interfaces.GameObjects;
+using SS14.Shared.Interfaces.GameObjects.Components;
+using SS14.Shared.IoC;
 using SS14.Shared.Maths;
-using SS14.Shared.Interfaces.Physics;
 
 namespace SS14.Server.GameObjects.EntitySystems
 {
     internal class PhysicsSystem : EntitySystem
     {
+        private IPauseManager _pauseManager;
         private const float Epsilon = 1.0e-6f;
         private const float GlobalFriction = 0.01f;
 
         public PhysicsSystem()
         {
-            EntityQuery = new ComponentEntityQuery
-            {
-                OneSet = new List<Type>
-                {
-                    typeof(PhysicsComponent),
-                }
-            };
+            EntityQuery = new TypeEntityQuery(typeof(PhysicsComponent));
+        }
+
+        public override void Initialize()
+        {
+            base.Initialize();
+           
+            _pauseManager = IoCManager.Resolve<IPauseManager>();
         }
 
         /// <inheritdoc />
@@ -29,12 +31,18 @@ namespace SS14.Server.GameObjects.EntitySystems
         {
             var entities = EntityManager.GetEntities(EntityQuery);
             foreach (var entity in entities)
+            {
+                if (_pauseManager.IsEntityPaused(entity))
+                {
+                    continue;
+                }
                 DoMovement(entity, frameTime);
+            }
         }
 
         private static void DoMovement(IEntity entity, float frameTime)
         {
-            var transform = entity.GetComponent<TransformComponent>();
+            var transform = entity.Transform;
             var velocity = entity.GetComponent<PhysicsComponent>();
 
             if (velocity.AngularVelocity == 0 && velocity.LinearVelocity == Vector2.Zero)

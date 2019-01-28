@@ -1,4 +1,4 @@
-using SS14.Shared.Interfaces.GameObjects;
+﻿using SS14.Shared.Interfaces.GameObjects;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -43,7 +43,7 @@ namespace SS14.Shared.GameObjects
                 return false;
             }
 
-            if (OneSet.Any() && !OneSet.Any(hasComponent))
+            if (OneSet.Count != 0 && !OneSet.Any(hasComponent))
             {
                 return false;
             }
@@ -73,5 +73,20 @@ namespace SS14.Shared.GameObjects
         }
 
         public bool Match(IEntity entity) => Predicate(entity);
+    }
+
+    /// <summary>
+    ///     An entity query that will match all of one type of component.
+    /// </summary>
+    public class TypeEntityQuery : IEntityQuery
+    {
+        public Type ComponentType { get; }
+
+        public TypeEntityQuery(Type componentType)
+        {
+            ComponentType = componentType;
+        }
+
+        public bool Match(IEntity entity) => entity.HasComponent(ComponentType);
     }
 }

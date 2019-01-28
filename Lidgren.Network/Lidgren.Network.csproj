@@ -10,7 +10,7 @@
     <ApplicationIcon />
     <AssemblyKeyContainerName />
     <AssemblyName>Lidgren.Network</AssemblyName>
-    <TargetFrameworkVersion>v4.5.1</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.7.1</TargetFrameworkVersion>
     <OutputType>Library</OutputType>
     <AppDesignerFolder />
     <RootNamespace>Lidgren.Network</RootNamespace>
@@ -34,6 +34,8 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DefineConstants>TRACE;DEBUG</DefineConstants>
     <DebugSymbols>True</DebugSymbols>
+    <DebugType Condition="'$(AppVeyor)' != 'yes'">portable</DebugType>
+    <DebugType Condition="'$(AppVeyor)' == 'yes'">full</DebugType>
     <Optimize>False</Optimize>
     <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
@@ -46,6 +48,8 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <DefineConstants>TRACE;DEBUG</DefineConstants>
     <DebugSymbols>True</DebugSymbols>
+    <DebugType Condition="'$(AppVeyor)' != 'yes'">portable</DebugType>
+    <DebugType Condition="'$(AppVeyor)' == 'yes'">full</DebugType>
     <Optimize>False</Optimize>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
@@ -56,7 +60,9 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
-    <DebugSymbols>true</DebugSymbols>
+    <DebugSymbols>True</DebugSymbols>
+    <DebugType Condition="'$(AppVeyor)' != 'yes'">portable</DebugType>
+    <DebugType Condition="'$(AppVeyor)' == 'yes'">full</DebugType>
     <DefineConstants>TRACE;DEBUG</DefineConstants>
     <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>

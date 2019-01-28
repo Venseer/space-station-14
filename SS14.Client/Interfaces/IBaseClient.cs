@@ -24,6 +24,11 @@ namespace SS14.Client.Interfaces
         ServerInfo GameInfo { get; }
 
         /// <summary>
+        /// A player name to use when connecting to the server instead of the one found in the configuration.
+        /// </summary>
+        string PlayerNameOverride { get; set; }
+
+        /// <summary>
         ///     Raised when the client RunLevel is changed.
         /// </summary>
         event EventHandler<RunLevelChangedEventArgs> RunLevelChanged;
@@ -32,11 +37,6 @@ namespace SS14.Client.Interfaces
         ///     Raised when the player successfully joins the server.
         /// </summary>
         event EventHandler<PlayerEventArgs> PlayerJoinedServer;
-
-        /// <summary>
-        ///     Raised when the player switches to the lobby.
-        /// </summary>
-        event EventHandler<PlayerEventArgs> PlayerJoinedLobby;
 
         /// <summary>
         ///     Raised when the player switches to the game.

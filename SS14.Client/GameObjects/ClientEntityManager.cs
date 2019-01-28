@@ -1,12 +1,13 @@
-﻿using SS14.Client.Interfaces.GameObjects;
+﻿using System;
+using System.Collections.Generic;
+using SS14.Client.Interfaces.GameObjects;
 using SS14.Shared.GameObjects;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Interfaces.GameObjects.Components;
-using SS14.Shared.Maths;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using SS14.Shared.Interfaces.Map;
+using SS14.Shared.IoC;
 using SS14.Shared.Map;
+using SS14.Shared.Maths;
 
 namespace SS14.Client.GameObjects
 {
@@ -15,7 +16,12 @@ namespace SS14.Client.GameObjects
     /// </summary>
     public sealed class ClientEntityManager : EntityManager, IClientEntityManager, IDisposable
     {
-        public IEnumerable<IEntity> GetEntitiesInRange(GridLocalCoordinates position, float Range)
+        [Dependency]
+        readonly IMapManager _mapManager;
+
+        private int NextClientEntityUid = EntityUid.ClientUid + 1;
+
+        public IEnumerable<IEntity> GetEntitiesInRange(GridCoordinates position, float Range)
         {
             var AABB = new Box2(position.Position - new Vector2(Range / 2, Range / 2), position.Position + new Vector2(Range / 2, Range / 2));
             return GetEntitiesIntersecting(position.MapID, AABB);
@@ -25,7 +31,7 @@ namespace SS14.Client.GameObjects
         {
             foreach (var entity in GetEntities())
             {
-                var transform = entity.GetComponent<ITransformComponent>();
+                var transform = entity.Transform;
                 if (transform.MapID != mapId)
                     continue;
 
@@ -48,7 +54,7 @@ namespace SS14.Client.GameObjects
         {
             foreach (var entity in GetEntities())
             {
-                var transform = entity.GetComponent<ITransformComponent>();
+                var transform = entity.Transform;
                 if (transform.MapID != mapId)
                     continue;
 
@@ -59,7 +65,7 @@ namespace SS14.Client.GameObjects
                 }
                 else
                 {
-                    if (FloatMath.CloseTo(transform.LocalPosition.X, position.X) && FloatMath.CloseTo(transform.LocalPosition.Y, position.Y))
+                    if (FloatMath.CloseTo(transform.GridPosition.X, position.X) && FloatMath.CloseTo(transform.GridPosition.Y, position.Y))
                     {
                         yield return entity;
                     }
@@ -71,7 +77,7 @@ namespace SS14.Client.GameObjects
         {
             foreach (var entity in GetEntities())
             {
-                var transform = entity.GetComponent<ITransformComponent>();
+                var transform = entity.Transform;
                 if (transform.MapID != mapId)
                     continue;
 
@@ -88,6 +94,7 @@ namespace SS14.Client.GameObjects
                     }
                 }
             }
+
             return false;
         }
 
@@ -97,34 +104,42 @@ namespace SS14.Client.GameObjects
 
             if (Started)
             {
-                throw new InvalidOperationException("InitializeEntities() called multiple times");
+                throw new InvalidOperationException("Startup() called multiple times");
             }
-            InitializeEntities();
+
             EntitySystemManager.Initialize();
             Started = true;
         }
 
         public void ApplyEntityStates(IEnumerable<EntityState> entityStates, IEnumerable<EntityUid> deletions, float serverTime)
         {
-            foreach (EntityState es in entityStates)
+            var toApply = new List<(Entity, EntityState)>();
+            foreach (var es in entityStates)
             {
                 //Todo defer component state result processing until all entities are loaded and initialized...
                 es.ReceivedTime = serverTime;
                 //Known entities
                 if (Entities.TryGetValue(es.StateData.Uid, out var entity))
                 {
-                    entity.HandleEntityState(es);
+                    toApply.Add(((Entity)entity, es));
                 }
                 else //Unknown entities
                 {
-                    Entity newEntity = SpawnEntity(es.StateData.TemplateName, es.StateData.Uid);
-                    if (Started)
+                    var newEntity = InternalCreateEntity(es.StateData.TemplateName, es.StateData.Uid);
+                    if (EntitiesInitialized)
                     {
                         InitializeEntity(newEntity);
                     }
+
                     newEntity.Name = es.StateData.Name;
-                    newEntity.HandleEntityState(es);
+                    toApply.Add((newEntity, es));
                 }
+            }
+
+            // Make sure this is done after all entities have been instantiated.
+            foreach (var (entity, es) in toApply)
+            {
+                entity.HandleEntityState(es);
             }
 
             foreach (var id in deletions)
@@ -133,9 +148,9 @@ namespace SS14.Client.GameObjects
             }
 
             // After the first set of states comes in we do the startup.
-            if (!Started && MapsInitialized)
+            if (!EntitiesInitialized)
             {
-                Startup();
+                InitializeEntities();
             }
         }
 
@@ -143,5 +158,70 @@ namespace SS14.Client.GameObjects
         {
             Shutdown();
         }
+
+        public override void Shutdown()
+        {
+            base.Shutdown();
+
+            EntitiesInitialized = false;
+        }
+
+        public override IEntity CreateEntity(string protoName)
+        {
+            return InternalCreateEntity(protoName, NewClientEntityUid());
+        }
+
+        public override Entity SpawnEntity(string protoName)
+        {
+            var ent = InternalCreateEntity(protoName, NewClientEntityUid());
+            if (EntitiesInitialized)
+            {
+                InitializeEntity(ent);
+            }
+            return ent;
+        }
+
+        public override IEntity ForceSpawnEntityAt(string entityType, GridCoordinates coordinates)
+        {
+            Entity entity = SpawnEntity(entityType);
+            entity.Transform.GridPosition = coordinates;
+            if (EntitiesInitialized)
+            {
+                InitializeEntity(entity);
+            }
+
+            return entity;
+        }
+
+        public override IEntity ForceSpawnEntityAt(string entityType, Vector2 position, MapId argMap)
+        {
+            if (!_mapManager.TryGetMap(argMap, out var map))
+            {
+                map = _mapManager.DefaultMap;
+            }
+
+            return ForceSpawnEntityAt(entityType, new GridCoordinates(position, map.FindGridAt(position)));
+
+        }
+
+        public override bool TrySpawnEntityAt(string entityType, Vector2 position, MapId argMap, out IEntity entity)
+        {
+            // TODO: check collisions here?
+            entity = ForceSpawnEntityAt(entityType, position, argMap);
+            return true;
+        }
+
+        public override bool TrySpawnEntityAt(string entityType, GridCoordinates coordinates, out IEntity entity)
+        {
+            // TODO: check collisions here?
+            entity = ForceSpawnEntityAt(entityType, coordinates);
+            return true;
+        }
+
+        EntityUid NewClientEntityUid()
+        {
+            return new EntityUid(NextClientEntityUid++);
+        }
+
     }
 }

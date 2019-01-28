@@ -1,68 +1,94 @@
-using System;
+﻿using System;
 using SS14.Client.GodotGlue;
 using SS14.Client.Graphics;
 
 namespace SS14.Client.UserInterface.Controls
 {
+    [ControlWrap(typeof(Godot.OptionButton))]
     public class OptionButton : Button
     {
         public event Action<ItemSelectedEventArgs> OnItemSelected;
 
         public int Selected
         {
-            get => SceneControl.Selected;
-            set => SceneControl.Selected = value;
+            get => GameController.OnGodot ? (int)SceneControl.Get("selected") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("selected", value);
+                }
+            }
         }
 
         public void AddItem(Texture icon, string label, int id = 1)
         {
-            SceneControl.AddIconItem(icon.GodotTexture, label, id);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("add_icon_item", icon.GodotTexture, label, id);
+            }
         }
 
         public void AddItem(string label, int id = 1)
         {
-            SceneControl.AddItem(label, id);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("add_item", label, id);
+            }
         }
 
         public void AddSeparator()
         {
-            SceneControl.AddSeparator();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("add_separator");
+            }
         }
 
         public void Clear()
         {
-            SceneControl.Clear();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("clear");
+            }
         }
 
-        public int ItemCount => SceneControl.GetItemCount();
+        public int ItemCount => GameController.OnGodot ? (int)SceneControl.Call("get_item_count") : default;
 
         public int GetItemId(int idx)
         {
-            return SceneControl.GetItemId(idx);
+            return GameController.OnGodot ? (int)SceneControl.Call("get_item_id", idx) : throw new NotImplementedException();
         }
 
         public object GetItemMetadata(int idx)
         {
-            return SceneControl.GetItemMetadata(idx);
+            return GameController.OnGodot ? SceneControl.Call("get_item_metadata", idx) : throw new NotImplementedException();
         }
 
-        public int SelectedId => SceneControl.GetSelectedId();
+        public int SelectedId => GameController.OnGodot ? (int)SceneControl.Call("get_selected_id") : default;
 
-        public object SelectedMetadata => SceneControl.GetSceneInstanceLoadPlaceholder();
+        public object SelectedMetadata =>
+            GameController.OnGodot ? SceneControl.GetSceneInstanceLoadPlaceholder() : default;
 
         public bool IsItemDisabled(int idx)
         {
-            return SceneControl.IsItemDisabled(idx);
+            return GameController.OnGodot ? (bool)SceneControl.Call("is_item_disabled", idx) : default;
         }
 
         public void RemoveItem(int idx)
         {
-            SceneControl.RemoveItem(idx);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("remove_item", idx);
+            }
         }
 
         public void Select(int idx)
         {
-            SceneControl.Select(idx);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("select", idx);
+            }
         }
 
         public void SelectId(int id)
@@ -85,50 +111,59 @@ namespace SS14.Client.UserInterface.Controls
 
         public void SetItemDisabled(int idx, bool disabled)
         {
-            SceneControl.SetItemDisabled(idx, disabled);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("set_item_disabled", idx, disabled);
+            }
         }
 
         public void SetItemIcon(int idx, Texture texture)
         {
-            SceneControl.SetItemIcon(idx, texture);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("set_item_icon", idx, texture);
+            }
         }
 
         public void SetItemId(int idx, int id)
         {
-            SceneControl.SetItemId(idx, id);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("set_item_id", idx, id);
+            }
         }
 
         public void SetItemMetadata(int idx, object metadata)
         {
-            SceneControl.SetItemMetadata(idx, metadata);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("set_item_metadata", idx, metadata);
+            }
         }
 
         public void SetItemText(int idx, string text)
         {
-            SceneControl.SetItemText(idx, text);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("set_item_text", idx, text);
+            }
         }
 
         public OptionButton() : base()
         {
         }
+
         public OptionButton(string name) : base(name)
         {
         }
-        public OptionButton(Godot.OptionButton button) : base(button)
+
+        internal OptionButton(Godot.OptionButton button) : base(button)
         {
         }
 
-        new private Godot.OptionButton SceneControl;
-
-        protected override Godot.Control SpawnSceneControl()
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.OptionButton();
-        }
-
-        protected override void SetSceneControl(Godot.Control control)
-        {
-            base.SetSceneControl(control);
-            SceneControl = (Godot.OptionButton)control;
         }
 
         public class ItemSelectedEventArgs : EventArgs
@@ -160,16 +195,19 @@ namespace SS14.Client.UserInterface.Controls
 
         protected override void DisposeSignalHooks()
         {
-            base.SetupSignalHooks();
+            base.DisposeSignalHooks();
 
-            __itemSelectedSubscriber.Disconnect(SceneControl, "item_selected");
-            __itemSelectedSubscriber.Dispose();
-            __itemSelectedSubscriber = null;
+            if (__itemSelectedSubscriber != null)
+            {
+                __itemSelectedSubscriber.Disconnect(SceneControl, "item_selected");
+                __itemSelectedSubscriber.Dispose();
+                __itemSelectedSubscriber = null;
+            }
         }
 
         private void __itemSelectedHook(object id)
         {
-            OnItemSelected?.Invoke(new ItemSelectedEventArgs((int)id, this));
+            OnItemSelected?.Invoke(new ItemSelectedEventArgs((int) id, this));
         }
     }
 }

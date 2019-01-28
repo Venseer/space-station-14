@@ -1,5 +1,4 @@
-﻿using SS14.Shared.IoC;
-using SS14.Shared.Log;
+﻿using System.Diagnostics.Contracts;
 
 namespace SS14.Shared.Interfaces.Log
 {

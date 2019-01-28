@@ -1,43 +1,80 @@
-﻿namespace SS14.Client.UserInterface.Controls
+﻿using System;
+using SS14.Client.GodotGlue;
+using SS14.Client.Utility;
+using SS14.Shared.Maths;
+
+namespace SS14.Client.UserInterface.Controls
 {
+    [ControlWrap(typeof(Godot.Popup))]
     public class Popup : Control
     {
         public Popup() : base()
         {
         }
+
         public Popup(string name) : base()
         {
         }
-        public Popup(Godot.Popup control) : base(control)
+
+        internal Popup(Godot.Popup control) : base(control)
         {
         }
 
-        new private Godot.Popup SceneControl;
+        public event Action OnPopupHide;
 
-        protected override Godot.Control SpawnSceneControl()
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.Popup();
         }
 
-        protected override void SetSceneControl(Godot.Control control)
-        {
-            base.SetSceneControl(control);
-            SceneControl = (Godot.Popup)control;
-        }
 
-        public void Open()
+        public void Open(UIBox2? box = null)
         {
-            SceneControl.Popup_();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("popup", box?.Convert());
+            }
         }
 
         public void OpenCentered()
         {
-            SceneControl.PopupCentered();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("popup_centered");
+            }
         }
 
         public void OpenMinimum()
         {
-            SceneControl.PopupCenteredMinsize();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("popup_centered_minsize");
+            }
+        }
+
+        private GodotSignalSubscriber0 __popupHideSubscriber;
+
+        protected override void SetupSignalHooks()
+        {
+            base.SetupSignalHooks();
+
+            __popupHideSubscriber = new GodotSignalSubscriber0();
+            __popupHideSubscriber.Connect(SceneControl, "popup_hide");
+            __popupHideSubscriber.Signal += __popupHideHook;
+        }
+
+        protected override void DisposeSignalHooks()
+        {
+            base.DisposeSignalHooks();
+
+            __popupHideSubscriber.Disconnect(SceneControl, "popup_hide");
+            __popupHideSubscriber.Dispose();
+            __popupHideSubscriber = null;
+        }
+
+        private void __popupHideHook()
+        {
+            OnPopupHide?.Invoke();
         }
     }
 }

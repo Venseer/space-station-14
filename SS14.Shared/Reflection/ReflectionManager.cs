@@ -80,6 +80,34 @@ namespace SS14.Shared.Reflection
         }
 
         /// <inheritdoc />
+        public Type LooseGetType(string name)
+        {
+            if (TryLooseGetType(name, out var ret))
+            {
+                return ret;
+            }
+            throw new ArgumentException("Unable to find type.");
+        }
+
+        public bool TryLooseGetType(string name, out Type type)
+        {
+            foreach (var assembly in assemblies)
+            {
+                foreach (var tryType in assembly.DefinedTypes)
+                {
+                    if (tryType.FullName.EndsWith(name))
+                    {
+                        type = tryType;
+                        return true;
+                    }
+                }
+            }
+
+            type = default;
+            return false;
+        }
+
+        /// <inheritdoc />
         public IEnumerable<Type> FindTypesWithAttribute<T>()
         {
             var types = new List<Type>();
@@ -97,7 +125,7 @@ namespace SS14.Shared.Reflection
         {
             if (!reference.StartsWith("enum."))
             {
-                @enum = default(Enum);
+                @enum = default;
                 return false;
             }
 

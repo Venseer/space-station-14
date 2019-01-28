@@ -4,6 +4,7 @@ using SS14.Shared.Interfaces.GameObjects;
 using SS14.Server.Interfaces.GameObjects;
 using SS14.Shared.Interfaces.GameObjects.Components;
 using SS14.Shared.IoC;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Server.GameObjects.Components.Container
 {
@@ -53,7 +54,7 @@ namespace SS14.Server.GameObjects.Components.Container
 
             foreach (var entity in ContainerList)
             {
-                var transform = entity.GetComponent<IServerTransformComponent>();
+                var transform = entity.Transform;
                 transform.DetachParent();
             }
         }
@@ -65,12 +66,15 @@ namespace SS14.Server.GameObjects.Components.Container
         public IContainerManager Manager { get; protected set; }
 
         /// <inheritdoc />
+        [ViewVariables]
         public string ID { get; }
 
         /// <inheritdoc />
+        [ViewVariables]
         public IEntity Owner => Manager.Owner;
 
         /// <inheritdoc />
+        [ViewVariables]
         public bool Deleted { get; protected set; } = false;
 
         /// <inheritdoc />
@@ -91,14 +95,17 @@ namespace SS14.Server.GameObjects.Components.Container
         {
             if (CanInsert(toinsert)) //Verify we can insert and that the object got properly removed from its current location
             {
-                var transform = toinsert.GetComponent<IServerTransformComponent>();
-                if (!transform.IsMapTransform && !transform.Parent.Owner.GetComponent<IContainerManager>().Remove(toinsert))
+                var transform = toinsert.Transform;
+                // The transform.Parent.Owner != Owner is there because map deserialization of containers still uses Insert()
+                // In which case the child is already parented. To us. Don't reject him hand him to the orphanage.
+                // Perhaps making it not use Insert() is a good idea but eh.
+                if (!transform.IsMapTransform && transform.Parent.Owner != Owner && !transform.Parent.Owner.GetComponent<IContainerManager>().Remove(toinsert))
                 {
                     // Can't detach the entity from its parent, can't insert.
                     return false;
                 }
                 InternalInsert(toinsert);
-                transform.AttachParent(Owner.GetComponent<IServerTransformComponent>());
+                transform.AttachParent(Owner.Transform);
                 return true;
             }
             return false;
@@ -113,30 +120,39 @@ namespace SS14.Server.GameObjects.Components.Container
         /// <inheritdoc />
         public virtual bool CanInsert(IEntity toinsert)
         {
+            // cannot insert into itself.
+            if (Owner == toinsert)
+                return false;
+
             // Crucial, prevent circular insertion.
-            if (toinsert.GetComponent<ITransformComponent>().ContainsEntity(Owner.GetComponent<ITransformComponent>()))
-            {
-                throw new InvalidOperationException("Attempt to insert entity into one of its children.");
-            }
-            return true;
+            return !toinsert.Transform.ContainsEntity(Owner.Transform);
+
+            //Improvement: Traverse the entire tree to make sure we are not creating a loop.
         }
 
         /// <inheritdoc />
         public bool Remove(IEntity toremove)
         {
+            if (toremove == null)
+                return true;
+
             if (!CanRemove(toremove))
             {
                 return false;
             }
             InternalRemove(toremove);
-            toremove.GetComponent<IServerTransformComponent>().DetachParent();
+
+            if (!toremove.IsValid())
+                return true;
+
+            toremove.Transform.DetachParent();
             return true;
         }
 
         /// <summary>
         /// Implement to remove the reference you used to store the entity
         /// </summary>
-        /// <param name="toinsert"></param>
+        /// <param name="toremove"></param>
         protected abstract void InternalRemove(IEntity toremove);
 
         /// <inheritdoc />

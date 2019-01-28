@@ -1,65 +1,71 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using SS14.Server.Interfaces;
 using SS14.Server.Interfaces.GameObjects;
 using SS14.Server.Interfaces.Player;
 using SS14.Shared.Enums;
 using SS14.Shared.GameStates;
 using SS14.Shared.Input;
+using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Interfaces.GameObjects.Components;
 using SS14.Shared.Interfaces.Network;
 using SS14.Shared.Interfaces.Reflection;
 using SS14.Shared.IoC;
-using SS14.Shared.Log;
 using SS14.Shared.Map;
 using SS14.Shared.Network;
 using SS14.Shared.Network.Messages;
 using SS14.Shared.Players;
+using SS14.Shared.Utility;
 
 namespace SS14.Server.Player
 {
     /// <summary>
     ///     This class will manage connected player sessions.
     /// </summary>
-    public class PlayerManager : IPlayerManager
+    internal class PlayerManager : IPlayerManager
     {
         [Dependency]
         private readonly IBaseServer _baseServer;
-
-        [Dependency]
-        private readonly IServerEntityManager _entityManager;
 
         [Dependency]
         private readonly IServerNetManager _network;
         [Dependency]
         private readonly IReflectionManager _reflectionManager;
 
-        private BoundKeyMap keyMap;
+        public BoundKeyMap KeyMap { get; private set; }
 
-        private bool NeedsStateUpdate = false;
+        private bool NeedsStateUpdate;
 
-        /// <summary>
-        ///     Number of active sessions.
-        ///     This is the cached value of _sessions.Count(s => s != null);
-        /// </summary>
-        private int _sessionCount;
+        private readonly ReaderWriterLockSlim _sessionsLock = new ReaderWriterLockSlim();
 
         /// <summary>
         ///     Active sessions of connected clients to the server.
         /// </summary>
-        private PlayerSession[] _sessions;
+        private Dictionary<NetSessionId, PlayerSession> _sessions;
 
-        public string PlayerPrototypeName { get; set; } = "__engine_human";
-
-        public GridLocalCoordinates FallbackSpawnPoint { get; set; }
+        private Dictionary<NetSessionId, PlayerData> _playerData;
 
         /// <inheritdoc />
-        public int PlayerCount => _sessionCount;
+        public int PlayerCount
+        {
+            get
+            {
+                _sessionsLock.EnterReadLock();
+                try
+                {
+                    return _sessions.Count;
+                }
+                finally
+                {
+                    _sessionsLock.ExitReadLock();
+                }
+            }
+        }
 
         /// <inheritdoc />
-        public int MaxPlayers => _sessions.Length;
+        public int MaxPlayers { get; private set; } = 32;
 
         /// <inheritdoc />
         public event EventHandler<SessionStatusEventArgs> PlayerStatusChanged;
@@ -67,51 +73,82 @@ namespace SS14.Server.Player
         /// <inheritdoc />
         public void Initialize(int maxPlayers)
         {
-            keyMap = new BoundKeyMap(_reflectionManager);
-            keyMap.PopulateKeyFunctionsMap();
+            KeyMap = new BoundKeyMap(_reflectionManager);
+            KeyMap.PopulateKeyFunctionsMap();
 
-            _sessions = new PlayerSession[maxPlayers];
+            MaxPlayers = maxPlayers;
+            _sessions = new Dictionary<NetSessionId, PlayerSession>(maxPlayers);
+            _playerData = new Dictionary<NetSessionId, PlayerData>(maxPlayers);
 
-            _network.RegisterNetMessage<MsgSession>(MsgSession.NAME);
-            _network.RegisterNetMessage<MsgClGreet>(MsgClGreet.NAME, HandleClientGreet);
             _network.RegisterNetMessage<MsgServerInfoReq>(MsgServerInfoReq.NAME, HandleWelcomeMessageReq);
             _network.RegisterNetMessage<MsgServerInfo>(MsgServerInfo.NAME);
             _network.RegisterNetMessage<MsgPlayerListReq>(MsgPlayerListReq.NAME, HandlePlayerListReq);
             _network.RegisterNetMessage<MsgPlayerList>(MsgPlayerList.NAME);
-            _network.RegisterNetMessage<MsgKeyFunctionStateChange>(MsgKeyFunctionStateChange.NAME, HandleKeyFunctionStateChange);
 
             _network.Connecting += OnConnecting;
             _network.Connected += NewSession;
             _network.Disconnect += EndSession;
         }
 
-        /// <summary>
-        ///     Spawns the players entity.
-        /// </summary>
-        /// <param name="session"></param>
-        public void SpawnPlayerMob(IPlayerSession session)
-        {
-            var entity = _entityManager.ForceSpawnEntityAt(PlayerPrototypeName, FallbackSpawnPoint);
-            session.AttachToEntity(entity);
-        }
-
         IPlayerSession IPlayerManager.GetSessionByChannel(INetChannel channel) => GetSessionByChannel(channel);
         private PlayerSession GetSessionByChannel(INetChannel channel)
         {
-            // Should only be one session per client. Returns that session, in theory.
-            return _sessions.FirstOrDefault(s => s?.ConnectedClient == channel);
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                // Should only be one session per client. Returns that session, in theory.
+                return _sessions[channel.SessionId];
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
         /// <inheritdoc />
-        public IPlayerSession GetSessionById(PlayerIndex index)
+        public IPlayerSession GetSessionById(NetSessionId index)
         {
-            Debug.Assert(0 <= index && index <= MaxPlayers);
-            return _sessions[index];
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                return _sessions[index];
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
-        public bool ValidSessionId(PlayerIndex index)
+        public bool ValidSessionId(NetSessionId index)
         {
-            return _sessions[index] != null;
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                return _sessions.ContainsKey(index);
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
+        }
+
+        public bool TryGetSessionById(NetSessionId sessionId, out IPlayerSession session)
+        {
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                if (_sessions.TryGetValue(sessionId, out var _session))
+                {
+                    session = _session;
+                    return true;
+                }
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
+            session = default;
+            return false;
         }
 
         /// <summary>
@@ -119,17 +156,21 @@ namespace SS14.Server.Player
         /// </summary>
         public void SendJoinGameToAll()
         {
-            foreach (var s in _sessions)
-                s?.JoinGame();
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                foreach (var s in _sessions.Values)
+                    s.JoinGame();
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
-        /// <summary>
-        ///     Causes all sessions to switch from the game to the lobby.
-        /// </summary>
-        public void SendJoinLobbyToAll()
+        public IEnumerable<IPlayerData> GetAllPlayerData()
         {
-            foreach (var s in _sessions)
-                s?.JoinLobby();
+            return _playerData.Values;
         }
 
         /// <summary>
@@ -137,39 +178,42 @@ namespace SS14.Server.Player
         /// </summary>
         public void DetachAll()
         {
-            foreach (var s in _sessions)
-                s?.DetachFromEntity();
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                foreach (var s in _sessions.Values)
+                    s.DetachFromEntity();
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
         /// <summary>
         ///     Gets all players inside of a circle.
         /// </summary>
-        /// <param name="position">Position of the circle in world-space.</param>
+        /// <param name="worldPos">Position of the circle in world-space.</param>
         /// <param name="range">Radius of the circle in world units.</param>
         /// <returns></returns>
-        public List<IPlayerSession> GetPlayersInRange(GridLocalCoordinates worldPos, int range)
+        public List<IPlayerSession> GetPlayersInRange(GridCoordinates worldPos, int range)
         {
+            _sessionsLock.EnterReadLock();
             //TODO: This needs to be moved to the PVS system.
-            return
-                _sessions.Where(x => x != null &&
-                                     x.AttachedEntity != null &&
-                                     worldPos.InRange(x.AttachedEntity.GetComponent<ITransformComponent>().LocalPosition, range))
-                    .Cast<IPlayerSession>()
-                    .ToList();
-        }
-
-        /// <summary>
-        ///     Gets all the players in the game lobby.
-        /// </summary>
-        /// <returns></returns>
-        public List<IPlayerSession> GetPlayersInLobby()
-        {
-            //TODO: Lobby system needs to be moved to Content Assemblies.
-            return
-                _sessions.Where(
-                        x => x != null && x.Status == SessionStatus.InLobby)
-                    .Cast<IPlayerSession>()
-                    .ToList();
+            try
+            {
+                return
+                    _sessions.Values.Where(x => x.AttachedEntity != null &&
+                                                worldPos.InRange(
+                                                    x.AttachedEntity.Transform.GridPosition,
+                                                    range))
+                        .Cast<IPlayerSession>()
+                        .ToList();
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
         /// <summary>
@@ -178,7 +222,15 @@ namespace SS14.Server.Player
         /// <returns></returns>
         public List<IPlayerSession> GetAllPlayers()
         {
-            return _sessions.Where(x => x != null).Cast<IPlayerSession>().ToList();
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                return _sessions.Values.Cast<IPlayerSession>().ToList();
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
         /// <summary>
@@ -192,10 +244,17 @@ namespace SS14.Server.Player
                 return null;
             }
             NeedsStateUpdate = false;
-            return _sessions
-                .Where(s => s != null)
-                .Select(s => s.PlayerState)
-                .ToList();
+            _sessionsLock.EnterReadLock();
+            try
+            {
+                return _sessions.Values
+                    .Select(s => s.PlayerState)
+                    .ToList();
+            }
+            finally
+            {
+                _sessionsLock.ExitReadLock();
+            }
         }
 
         private void OnConnecting(object sender, NetConnectingArgs args)
@@ -209,21 +268,26 @@ namespace SS14.Server.Player
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="args"></param>
-        public void NewSession(object sender, NetChannelArgs args)
+        private void NewSession(object sender, NetChannelArgs args)
         {
-            var pos = GetFirstOpenIndex();
-
-            if (pos == -1)
-                throw new InvalidOperationException("NewSession was called, but there are no available slots!");
-
-            var index = new PlayerIndex(pos);
-            var session = new PlayerSession(this, args.Channel, index);
+            if (!_playerData.TryGetValue(args.Channel.SessionId, out var data))
+            {
+                data = new PlayerData(args.Channel.SessionId);
+                _playerData.Add(args.Channel.SessionId, data);
+            }
+            var session = new PlayerSession(this, args.Channel, data);
 
             session.PlayerStatusChanged += (obj, sessionArgs) => OnPlayerStatusChanged(session, sessionArgs.OldStatus, sessionArgs.NewStatus);
 
-            Debug.Assert(_sessions[pos] == null);
-            _sessionCount++;
-            _sessions[pos] = session;
+            _sessionsLock.EnterWriteLock();
+            try
+            {
+                _sessions.Add(args.Channel.SessionId, session);
+            }
+            finally
+            {
+                _sessionsLock.ExitWriteLock();
+            }
         }
 
         private void OnPlayerStatusChanged(IPlayerSession session, SessionStatus oldStatus, SessionStatus newStatus)
@@ -239,58 +303,30 @@ namespace SS14.Server.Player
             var session = GetSessionByChannel(args.Channel);
 
             // make sure nothing got messed up during the life of the session
-            Debug.Assert(_sessionCount > 0);
-            Debug.Assert(0 <= session.Index && session.Index <= MaxPlayers);
-            Debug.Assert(_sessions[session.Index] != null);
-            Debug.Assert(_sessions[session.Index].ConnectedClient.ConnectionId == args.Channel.ConnectionId);
+            DebugTools.Assert(session.ConnectedClient == args.Channel);
 
             //Detach the entity and (don't)delete it.
             session.OnDisconnect();
-            _sessionCount--;
-            _sessions[session.Index] = null;
-        }
-
-        private int GetFirstOpenIndex()
-        {
-            Debug.Assert(PlayerCount <= MaxPlayers);
-
-            if (PlayerCount == MaxPlayers)
-                return -1;
-
-            for (var i = 0; i < _sessions.Length; i++)
-                if (_sessions[i] == null)
-                    return i;
-
-            Debug.Assert(true, "Why was a slot not found? There should be one.");
-            return -1;
-        }
-
-        private void HandleClientGreet(MsgClGreet msg)
-        {
-            var p = GetSessionByChannel(msg.MsgChannel);
-
-            var fixedName = msg.PlyName.Trim();
-            if (fixedName.Length < 3)
-                fixedName = $"Player {p.Index}";
-
-            p.SetName(fixedName);
+            _sessionsLock.EnterWriteLock();
+            try
+            {
+                _sessions.Remove(session.SessionId);
+            }
+            finally
+            {
+                _sessionsLock.ExitWriteLock();
+            }
         }
 
         private void HandleWelcomeMessageReq(MsgServerInfoReq message)
         {
             var session = GetSessionByChannel(message.MsgChannel);
-            session.Name = message.PlayerName;
 
             var netMsg = message.MsgChannel.CreateNetMessage<MsgServerInfo>();
 
             netMsg.ServerName = _baseServer.ServerName;
-            netMsg.ServerPort = _network.Port;
-            netMsg.ServerWelcomeMessage = _baseServer.Motd;
             netMsg.ServerMaxPlayers = _baseServer.MaxPlayers;
-            netMsg.ServerMapName = _baseServer.MapName;
-            netMsg.GameMode = _baseServer.GameModeName;
-            netMsg.ServerPlayerCount = PlayerCount;
-            netMsg.PlayerIndex = session.Index;
+            netMsg.PlayerSessionId = session.SessionId;
 
             message.MsgChannel.SendMessage(netMsg);
         }
@@ -309,8 +345,7 @@ namespace SS14.Server.Player
 
                 var info = new PlayerState
                 {
-                    Index = client.Index,
-                    Uuid = client.ConnectedClient.ConnectionId,
+                    SessionId = client.SessionId,
                     Name = client.Name,
                     Status = client.Status,
                     Ping = client.ConnectedClient.Ping
@@ -332,11 +367,25 @@ namespace SS14.Server.Player
             NeedsStateUpdate = true;
         }
 
-        private void HandleKeyFunctionStateChange(MsgKeyFunctionStateChange message)
+        public IPlayerData GetPlayerData(NetSessionId sessionId)
         {
-            var function = keyMap.KeyFunctionName(message.KeyFunction);
-            var player = GetSessionByChannel(message.MsgChannel);
-            player.Input.SetFunctionState(function, message.NewState);
+            return _playerData[sessionId];
+        }
+
+        public bool TryGetPlayerData(NetSessionId sessionId, out IPlayerData data)
+        {
+            if (_playerData.TryGetValue(sessionId, out var _data))
+            {
+                data = _data;
+                return true;
+            }
+            data = default;
+            return false;
+        }
+
+        public bool HasPlayerData(NetSessionId sessionId)
+        {
+            return _playerData.ContainsKey(sessionId);
         }
     }
 

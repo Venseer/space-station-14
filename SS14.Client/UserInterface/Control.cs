@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using SS14.Shared.Log;
 using SS14.Shared.Interfaces.Reflection;
-using SS14.Shared.ContentPack;
 using System.Reflection;
 using SS14.Shared.Maths;
 using SS14.Client.Utility;
@@ -13,7 +12,9 @@ using SS14.Client.Graphics.Drawing;
 using SS14.Shared.Utility;
 using SS14.Client.Interfaces.ResourceManagement;
 using System.IO;
+using JetBrains.Annotations;
 using SS14.Client.Graphics;
+using SS14.Client.ResourceManagement.ResourceTypes;
 
 namespace SS14.Client.UserInterface
 {
@@ -22,6 +23,9 @@ namespace SS14.Client.UserInterface
     ///     NOTE: For docs, most of these are direct proxies to Godot's Control.
     ///     See the official docs for more help: https://godot.readthedocs.io/en/3.0/classes/class_control.html
     /// </summary>
+    [PublicAPI]
+    [ControlWrap(typeof(Godot.Control))]
+    // ReSharper disable once RequiredBaseTypesIsNotInherited
     public partial class Control : IDisposable
     {
         /// <summary>
@@ -54,7 +58,11 @@ namespace SS14.Client.UserInterface
                 }
 
                 _name = value;
-                SceneControl.SetName(_name);
+
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SetName(_name);
+                }
 
                 if (Parent != null)
                 {
@@ -67,11 +75,12 @@ namespace SS14.Client.UserInterface
 
         public Control Parent { get; private set; }
 
+        internal IUserInterfaceManagerInternal UserInterfaceManagerInternal { get; }
+
         /// <summary>
         ///     The UserInterfaceManager we belong to, for convenience.
         /// </summary>
-        /// <returns></returns>
-        public IUserInterfaceManager UserInterfaceManager { get; }
+        public IUserInterfaceManager UserInterfaceManager => UserInterfaceManagerInternal;
 
         /// <summary>
         ///     Gets an enumerable over all the children of this control.
@@ -81,7 +90,7 @@ namespace SS14.Client.UserInterface
         /// <summary>
         ///     The control's representation in Godot's scene tree.
         /// </summary>
-        internal Godot.Control SceneControl { get; private set; }
+        internal Godot.Control SceneControl => WrappedSceneControl;
 
         /// <summary>
         ///     Path to the .tscn file for this scene in the VFS.
@@ -97,103 +106,229 @@ namespace SS14.Client.UserInterface
 
         public float AnchorBottom
         {
-            get => SceneControl.AnchorBottom;
-            set => SceneControl.AnchorBottom = value;
+            get => GameController.OnGodot ? GameController.OnGodot ? SceneControl.AnchorBottom : default : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.AnchorBottom = value;
+                }
+            }
         }
 
         public float AnchorLeft
         {
-            get => SceneControl.AnchorLeft;
-            set => SceneControl.AnchorLeft = value;
+            get => GameController.OnGodot ? SceneControl.AnchorLeft : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.AnchorLeft = value;
+                }
+            }
         }
 
         public float AnchorRight
         {
-            get => SceneControl.AnchorRight;
-            set => SceneControl.AnchorRight = value;
+            get => GameController.OnGodot ? SceneControl.AnchorRight : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.AnchorRight = value;
+                }
+            }
         }
 
         public float AnchorTop
         {
-            get => SceneControl.AnchorTop;
-            set => SceneControl.AnchorTop = value;
+            get => GameController.OnGodot ? SceneControl.AnchorTop : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.AnchorTop = value;
+                }
+            }
         }
 
         public float MarginRight
         {
-            get => SceneControl.MarginRight;
-            set => SceneControl.MarginRight = value;
+            get => GameController.OnGodot ? SceneControl.MarginRight : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.MarginRight = value;
+                }
+            }
         }
 
         public float MarginLeft
         {
-            get => SceneControl.MarginLeft;
-            set => SceneControl.MarginLeft = value;
+            get => GameController.OnGodot ? SceneControl.MarginLeft : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.MarginLeft = value;
+                }
+            }
         }
 
         public float MarginTop
         {
-            get => SceneControl.MarginTop;
-            set => SceneControl.MarginTop = value;
+            get => GameController.OnGodot ? SceneControl.MarginTop : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.MarginTop = value;
+                }
+            }
         }
 
         public float MarginBottom
         {
-            get => SceneControl.MarginBottom;
-            set => SceneControl.MarginBottom = value;
+            get => GameController.OnGodot ? SceneControl.MarginBottom : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.MarginBottom = value;
+                }
+            }
         }
 
         public bool Visible
         {
-            get => SceneControl.Visible;
-            set => SceneControl.Visible = value;
+            get => GameController.OnGodot ? SceneControl.Visible : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Visible = value;
+                }
+            }
         }
 
         public Vector2 Size
         {
-            get => SceneControl.GetSize().Convert();
-            set => SceneControl.SetSize(value.Convert());
+            get => GameController.OnGodot ? SceneControl.GetSize().Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SetSize(value.Convert());
+                }
+            }
         }
 
         public Vector2 Position
         {
-            get => SceneControl.GetPosition().Convert();
-            set => SceneControl.SetPosition(value.Convert());
+            get => GameController.OnGodot ? SceneControl.GetPosition().Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SetPosition(value.Convert());
+                }
+            }
         }
 
-        public Box2 Rect
+        public UIBox2 Rect
         {
-            get => SceneControl.GetRect().Convert();
+            get => GameController.OnGodot ? SceneControl.GetRect().Convert() : default;
         }
 
         public Vector2 Scale
         {
-            get => SceneControl.RectScale.Convert();
-            set => SceneControl.RectScale = value.Convert();
+            get => GameController.OnGodot ? SceneControl.RectScale.Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.RectScale = value.Convert();
+                }
+            }
+        }
+
+        public string ToolTip
+        {
+            get => GameController.OnGodot ? SceneControl.GetTooltip() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SetTooltip(value);
+                }
+            }
         }
 
         public MouseFilterMode MouseFilter
         {
-            get => (MouseFilterMode)SceneControl.MouseFilter;
-            set => SceneControl.MouseFilter = (Godot.Control.MouseFilterEnum)value;
+            get => GameController.OnGodot ? (MouseFilterMode) SceneControl.MouseFilter : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.MouseFilter = (Godot.Control.MouseFilterEnum) value;
+                }
+            }
         }
 
         public SizeFlags SizeFlagsHorizontal
         {
-            get => (SizeFlags)SceneControl.SizeFlagsHorizontal;
-            set => SceneControl.SizeFlagsHorizontal = (int)value;
+            get => GameController.OnGodot ? (SizeFlags) SceneControl.SizeFlagsHorizontal : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SizeFlagsHorizontal = (int) value;
+                }
+            }
         }
 
         public float SizeFlagsStretchRatio
         {
-            get => SceneControl.SizeFlagsStretchRatio;
-            set => SceneControl.SizeFlagsStretchRatio = value;
+            get => GameController.OnGodot ? SceneControl.SizeFlagsStretchRatio : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SizeFlagsStretchRatio = value;
+                }
+            }
         }
 
         public SizeFlags SizeFlagsVertical
         {
-            get => (SizeFlags)SceneControl.SizeFlagsVertical;
-            set => SceneControl.SizeFlagsVertical = (int)value;
+            get => GameController.OnGodot ? (SizeFlags) SceneControl.SizeFlagsVertical : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SizeFlagsVertical = (int) value;
+                }
+            }
+        }
+
+        public bool RectClipContent
+        {
+            get => GameController.OnGodot ? SceneControl.RectClipContent : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.RectClipContent = value;
+                }
+            }
+        }
+
+        public Color Modulate
+        {
+            get => SceneControl.Modulate.Convert();
+            set => SceneControl.Modulate = value.Convert();
         }
 
         /// <summary>
@@ -203,7 +338,7 @@ namespace SS14.Client.UserInterface
         /// </summary>
         public Vector2 CombinedMinimumSize
         {
-            get => SceneControl.GetCombinedMinimumSize().Convert();
+            get => GameController.OnGodot ? SceneControl.GetCombinedMinimumSize().Convert() : default;
         }
 
         /// <summary>
@@ -213,13 +348,19 @@ namespace SS14.Client.UserInterface
         /// <seealso cref="CombinedMinimumSize" />
         public Vector2 CustomMinimumSize
         {
-            get => SceneControl.RectMinSize.Convert();
-            set => SceneControl.RectMinSize = value.Convert();
+            get => GameController.OnGodot ? SceneControl.RectMinSize.Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.RectMinSize = value.Convert();
+                }
+            }
         }
 
         public Vector2 GlobalMousePosition
         {
-            get => SceneControl.GetGlobalMousePosition().Convert();
+            get => GameController.OnGodot ? SceneControl.GetGlobalMousePosition().Convert() : default;
         }
 
         private readonly Dictionary<string, Control> _children = new Dictionary<string, Control>();
@@ -230,8 +371,18 @@ namespace SS14.Client.UserInterface
         /// </summary>
         public Control()
         {
-            UserInterfaceManager = IoCManager.Resolve<IUserInterfaceManager>();
-            SetupSceneControl();
+            UserInterfaceManagerInternal = IoCManager.Resolve<IUserInterfaceManagerInternal>();
+
+            if (GameController.OnGodot)
+            {
+                SetupSceneControl();
+            }
+
+            else if (ScenePath != null)
+            {
+                _manualNodeSetup();
+            }
+
             Name = GetType().Name;
             Initialize();
         }
@@ -243,25 +394,35 @@ namespace SS14.Client.UserInterface
             {
                 throw new ArgumentException("Name must not be null or whitespace.", nameof(name));
             }
-            UserInterfaceManager = IoCManager.Resolve<IUserInterfaceManager>();
-            SetupSceneControl();
+
+            UserInterfaceManagerInternal = IoCManager.Resolve<IUserInterfaceManagerInternal>();
+
+            if (GameController.OnGodot)
+            {
+                SetupSceneControl();
+            }
+            else if (ScenePath != null)
+            {
+                _manualNodeSetup();
+            }
+
             Name = name;
             Initialize();
         }
+
 
         /// <summary>
         ///     Wrap the provided Godot control with this one.
         ///     This does NOT set up parenting correctly!
         /// </summary>
-        public Control(Godot.Control control)
+        internal Control(Godot.Control control)
         {
-            SetSceneControl(control);
-            UserInterfaceManager = IoCManager.Resolve<IUserInterfaceManager>();
+            UserInterfaceManagerInternal = IoCManager.Resolve<IUserInterfaceManagerInternal>();
             _name = control.GetName();
+            InjectControlWrap(control);
             SetupSignalHooks();
             //Logger.Debug($"Wrapping control {Name} ({GetType()} -> {control.GetType()})");
             Initialize();
-            InjectControlWrap();
         }
 
         /// <summary>
@@ -271,6 +432,182 @@ namespace SS14.Client.UserInterface
         protected virtual void Initialize()
         {
         }
+
+        private static Dictionary<string, Type> _manualNodeTypeTranslations;
+
+        private void _manualNodeSetup()
+        {
+            DebugTools.AssertNotNull(ScenePath);
+
+            if (_manualNodeTypeTranslations == null)
+            {
+                _initManualNodeTypeTranslations();
+            }
+
+            DebugTools.AssertNotNull(_manualNodeTypeTranslations);
+
+            var resourceCache = IoCManager.Resolve<IResourceCache>();
+            var asset = (GodotAssetScene) resourceCache.GetResource<GodotAssetResource>(ScenePath).Asset;
+
+            // Go over the inherited scenes with a stack,
+            // because you can theoretically have very deep scene inheritance.
+            var (_, inheritedSceneStack) = _manualFollowSceneInheritance(asset, resourceCache, false);
+
+            _manualApplyInheritedSceneStack(this, inheritedSceneStack, asset, resourceCache);
+        }
+
+        private static void _manualApplyInheritedSceneStack(Control baseControl,
+            Stack<GodotAssetScene> inheritedSceneStack, GodotAssetScene asset,
+            IResourceCache resourceCache)
+        {
+            var parentMapping = new Dictionary<string, Control> {["."] = baseControl};
+
+            // Go over the inherited scenes bottom-first.
+            while (inheritedSceneStack.Count != 0)
+            {
+                var inheritedAsset = inheritedSceneStack.Pop();
+
+                foreach (var node in inheritedAsset.Nodes)
+                {
+                    // It's the base control.
+                    if (node.Parent == null)
+                    {
+                        continue;
+                    }
+
+                    Control childControl;
+                    if (node.Type != null)
+                    {
+                        if (!_manualNodeTypeTranslations.TryGetValue(node.Type, out var type))
+                        {
+                            type = typeof(Control);
+                        }
+
+                        childControl = (Control) Activator.CreateInstance(type);
+                        childControl.Name = node.Name;
+                    }
+                    else if (node.Instance != null)
+                    {
+                        var extResource = asset.GetExtResource(node.Instance.Value);
+                        DebugTools.Assert(extResource.Type == "PackedScene");
+
+                        if (_manualNodeTypeTranslations.TryGetValue(extResource.Path, out var type))
+                        {
+                            childControl = (Control) Activator.CreateInstance(type);
+                        }
+                        else
+                        {
+                            var subScene =
+                                (GodotAssetScene) resourceCache
+                                    .GetResource<GodotAssetResource>(
+                                        GodotPathUtility.GodotPathToResourcePath(extResource.Path)).Asset;
+
+                            childControl = ManualSpawnFromScene(subScene);
+                        }
+
+                        childControl.Name = node.Name;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    parentMapping[node.Parent].AddChild(childControl);
+                    if (node.Parent == ".")
+                    {
+                        parentMapping[node.Name] = childControl;
+                    }
+                    else
+                    {
+                        parentMapping[$"{node.Parent}/{node.Name}"] = childControl;
+                    }
+                }
+            }
+        }
+
+        internal static Control ManualSpawnFromScene(GodotAssetScene scene)
+        {
+            if (_manualNodeTypeTranslations == null)
+            {
+                _initManualNodeTypeTranslations();
+            }
+
+            DebugTools.AssertNotNull(_manualNodeTypeTranslations);
+
+            var resourceCache = IoCManager.Resolve<IResourceCache>();
+
+            var (controlType, inheritedSceneStack) = _manualFollowSceneInheritance(scene, resourceCache, true);
+
+            var control = (Control) Activator.CreateInstance(controlType);
+            control.Name = scene.Nodes[0].Name;
+
+            _manualApplyInheritedSceneStack(control, inheritedSceneStack, scene, resourceCache);
+
+            return control;
+        }
+
+        private static (Type, Stack<GodotAssetScene>) _manualFollowSceneInheritance(GodotAssetScene scene,
+            IResourceCache resourceCache, bool getType)
+        {
+            // Go over the inherited scenes with a stack,
+            // because you can theoretically have very deep scene inheritance.
+            var inheritedSceneStack = new Stack<GodotAssetScene>();
+            inheritedSceneStack.Push(scene);
+
+            Type controlType = null;
+
+            while (scene.Nodes[0].Instance != null)
+            {
+                var extResource = scene.GetExtResource(scene.Nodes[0].Instance.Value);
+                DebugTools.Assert(extResource.Type == "PackedScene");
+
+                if (getType && _manualNodeTypeTranslations.TryGetValue(extResource.Path, out controlType))
+                {
+                    break;
+                }
+
+                scene = (GodotAssetScene) resourceCache.GetResource<GodotAssetResource>(
+                    GodotPathUtility.GodotPathToResourcePath(extResource.Path)).Asset;
+
+                inheritedSceneStack.Push(scene);
+            }
+
+            if (controlType == null)
+            {
+                if (!getType
+                    || scene.Nodes[0].Type == null
+                    || !_manualNodeTypeTranslations.TryGetValue(scene.Nodes[0].Type, out controlType))
+                {
+                    controlType = typeof(Control);
+                }
+            }
+
+            return (controlType, inheritedSceneStack);
+        }
+
+        private static void _initManualNodeTypeTranslations()
+        {
+            DebugTools.AssertNull(_manualNodeTypeTranslations);
+
+            _manualNodeTypeTranslations = new Dictionary<string, Type>();
+
+            var reflectionManager = IoCManager.Resolve<IReflectionManager>();
+
+            foreach (var type in reflectionManager.FindTypesWithAttribute<ControlWrapAttribute>())
+            {
+                var attr = type.GetCustomAttribute<ControlWrapAttribute>();
+                if (attr.InstanceString != null)
+                {
+                    _manualNodeTypeTranslations[attr.InstanceString] = type;
+                }
+
+                if (attr.ConcreteType != null)
+                {
+                    _manualNodeTypeTranslations[attr.ConcreteType.Name] = type;
+                }
+            }
+        }
+
 
         private void SetupSceneControl()
         {
@@ -287,69 +624,79 @@ namespace SS14.Client.UserInterface
                 {
                     throw new FileNotFoundException("Scene path must exist on disk.");
                 }
-                var scene = (Godot.PackedScene)Godot.GD.Load(diskPath);
-                newSceneControl = (Godot.Control)scene.Instance();
+
+                newSceneControl = LoadScene(diskPath);
             }
-            SetSceneControl(newSceneControl);
+
+            InjectControlWrap(newSceneControl);
             SetupSignalHooks();
             // Certain controls (LineEdit, WindowDialog, etc...) create sub controls automatically,
             // handle these.
             WrapChildControls();
-            InjectControlWrap();
         }
 
         // ASSUMING DIRECT CONTROL.
-        private void InjectControlWrap()
+        private void InjectControlWrap(Godot.Control control)
         {
             // Inject wrapper script to hook virtual functions.
             // IMPORTANT: Because of how Scripts work in Godot,
             // it has to effectively "replace" the type of the control.
             // It... obviously cannot do this because this is [insert statically typed language].
             // As such: getting an instance to the control AFTER this point will yield a control of type ControlWrap.
-            // Luckily, the old instance seems to still work flawlessy for everything, including signals!
+            // UPDATE: As of 3.1 alpha 3, the following does not work:
+            // Luckily, the old instance seems to still work flawlessy for everything, including signals!\
+            // /UPDATE: so yes we need to use _Set and such now. Oh well.
             var script = Godot.GD.Load("res://ControlWrap.cs");
-            SceneControl.SetScript(script);
 
             // So... getting a new reference to ourselves is surprisingly difficult!
-            if (SceneControl.GetChildCount() > 0)
+            if (control.GetChildCount() > 0)
             {
                 // Potentially easiest: if we have a child, get the parent of our child (us).
-                WrappedSceneControl = (ControlWrap)SceneControl.GetChild(0).GetParent();
+                var child = control.GetChild(0);
+                control.SetScript(script);
+                WrappedSceneControl = (ControlWrap) child.GetParent();
             }
-            else if (SceneControl.GetParent() != null)
+            else if (control.GetParent() != null)
             {
                 // If not but we have a parent use that.
-                WrappedSceneControl = (ControlWrap)SceneControl.GetParent().GetChild(SceneControl.GetIndex());
+                var index = control.GetIndex();
+                var parent = control.GetParent();
+                control.SetScript(script);
+                WrappedSceneControl = (ControlWrap) parent.GetChild(index);
             }
             else
             {
                 // Ok so we're literally a lone node guess making a temporary child'll be fine.
                 var node = new Godot.Node();
-                SceneControl.AddChild(node);
-                WrappedSceneControl = (ControlWrap)node.GetParent();
+                control.AddChild(node);
+                control.SetScript(script);
+                WrappedSceneControl = (ControlWrap) node.GetParent();
                 node.QueueFree();
             }
 
             WrappedSceneControl.GetMinimumSizeOverride = () => CalculateMinimumSize().Convert();
-            WrappedSceneControl.HasPointOverride = (point) => HasPoint(point.Convert());
+            WrappedSceneControl.HasPointOverride = point => HasPoint(point.Convert());
             WrappedSceneControl.DrawOverride = DoDraw;
         }
 
         private void DoDraw()
         {
-            using (var handle = new DrawingHandle(SceneControl.GetCanvasItem()))
+            using (var handle = new DrawingHandleScreen(SceneControl.GetCanvasItem()))
             {
                 Draw(handle);
             }
         }
 
-        protected virtual void Draw(DrawingHandle handle)
+        protected virtual void Draw(DrawingHandleScreen handle)
         {
         }
 
         public void UpdateDraw()
         {
-            SceneControl.Update();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Update();
+            }
         }
 
         /// <summary>
@@ -357,18 +704,9 @@ namespace SS14.Client.UserInterface
         ///     ONLY spawn the control in here. Use <see cref="SetSceneControl" /> for holding references to it.
         ///     This is to allow children to override it without breaking the setting.
         /// </summary>
-        protected virtual Godot.Control SpawnSceneControl()
+        private protected virtual Godot.Control SpawnSceneControl()
         {
             return new Godot.Control();
-        }
-
-        /// <summary>
-        ///     override by child classes to have a reference to the Godot control for accessing.
-        /// </summary>
-        /// <param name="control"></param>
-        protected virtual void SetSceneControl(Godot.Control control)
-        {
-            SceneControl = control;
         }
 
         public bool Disposed { get; private set; } = false;
@@ -399,17 +737,16 @@ namespace SS14.Client.UserInterface
                 OnKeyDown = null;
             }
 
-            DisposeSignalHooks();
 
-            if (!GameController.ShuttingDownHard)
+            if (GameController.OnGodot)
             {
-                SceneControl.QueueFree();
-                SceneControl.Dispose();
-                SceneControl = null;
+                DisposeSignalHooks();
+            }
 
-                // Don't QueueFree since these are the same node.
-                // Kinda sorta mostly probably hopefully.
-                WrappedSceneControl.Dispose();
+            if (GameController.OnGodot && !GameController.ShuttingDownHard)
+            {
+                WrappedSceneControl?.QueueFree();
+                WrappedSceneControl?.Dispose();
                 WrappedSceneControl = null;
             }
         }
@@ -440,8 +777,12 @@ namespace SS14.Client.UserInterface
         ///     Thrown if we already have a component with the same name,
         ///     or the provided component is still parented to a different control.
         /// </exception>
+        /// <exception cref="ArgumentNullException">
+        ///    <paramref name="child"/> is <c>null</c>.
+        /// </exception>
         public virtual void AddChild(Control child, bool LegibleUniqueName = false)
         {
+            if (child == null) throw new ArgumentNullException(nameof(child));
             if (child.Parent != null)
             {
                 throw new InvalidOperationException("This component is still parented. Deparent it before adding it.");
@@ -449,12 +790,17 @@ namespace SS14.Client.UserInterface
 
             child.Parent = this;
             child.Parented(this);
-            SceneControl.AddChild(child.SceneControl, LegibleUniqueName);
-            // Godot changes the name automtically if you would cause a naming conflict.
-            if (child.SceneControl.GetName() != child._name)
+
+            if (GameController.OnGodot)
             {
-                child._name = child.SceneControl.GetName();
+                SceneControl.AddChild(child.SceneControl, LegibleUniqueName);
+                // Godot changes the name automtically if you would cause a naming conflict.
+                if (child.SceneControl.GetName() != child._name)
+                {
+                    child._name = child.SceneControl.GetName();
+                }
             }
+
             _children[child.Name] = child;
         }
 
@@ -482,7 +828,10 @@ namespace SS14.Client.UserInterface
 
             _children.Remove(child.Name);
             child.Parent = null;
-            SceneControl.RemoveChild(child.SceneControl);
+            if (GameController.OnGodot)
+            {
+                SceneControl.RemoveChild(child.SceneControl);
+            }
         }
 
         /// <summary>
@@ -508,7 +857,10 @@ namespace SS14.Client.UserInterface
         /// </summary>
         public void MinimumSizeChanged()
         {
-            SceneControl.MinimumSizeChanged();
+            if (GameController.OnGodot)
+            {
+                SceneControl.MinimumSizeChanged();
+            }
         }
 
         protected virtual bool HasPoint(Vector2 point)
@@ -521,11 +873,24 @@ namespace SS14.Client.UserInterface
 
         public T GetChild<T>(string name) where T : Control
         {
-            return (T)GetChild(name);
+            return (T) GetChild(name);
         }
+
+        private static readonly char[] SectionSplitDelimiter = {'/'};
 
         public Control GetChild(string name)
         {
+            if (name.IndexOf('/') != -1)
+            {
+                var current = this;
+                foreach (var section in name.Split(SectionSplitDelimiter, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    current = current.GetChild(section);
+                }
+
+                return current;
+            }
+
             if (TryGetChild(name, out var control))
             {
                 return control;
@@ -538,9 +903,10 @@ namespace SS14.Client.UserInterface
         {
             if (_children.TryGetValue(name, out var control))
             {
-                child = (T)control;
+                child = (T) control;
                 return true;
             }
+
             child = null;
             return false;
         }
@@ -555,12 +921,61 @@ namespace SS14.Client.UserInterface
             return _children.ContainsKey(name);
         }
 
+        // TODO: Expose this as public.
+        // The problem is that non-Control nodes such as timers mess up the position so it isn't consistent.
+        /// <summary>
+        ///     Sets the index of this control in Godot's scene tree.
+        ///     This pretty much corresponds to layout and drawing order in relation to its siblings.
+        /// </summary>
+        /// <param name="position"></param>
+        /// <exception cref="InvalidOperationException">This control has no parent.</exception>
+        internal void SetPositionInParent(int position)
+        {
+            if (Parent == null)
+            {
+                throw new InvalidOperationException("No parent to change position in.");
+            }
+
+            if (GameController.OnGodot)
+            {
+                Parent.SceneControl.MoveChild(SceneControl, 0);
+            }
+        }
+
+        /// <summary>
+        ///     Makes this the first control among its siblings,
+        ///     So that it's first in things such as drawing order.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">This control has no parent.</exception>
+        public void SetPositionFirst()
+        {
+            SetPositionInParent(0);
+        }
+
+        /// <summary>
+        ///     Makes this the last control among its siblings,
+        ///     So that it's last in things such as drawing order.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">This control has no parent.</exception>
+        public void SetPositionLast()
+        {
+            if (Parent == null)
+            {
+                throw new InvalidOperationException("No parent to change position in.");
+            }
+
+            if (GameController.OnGodot)
+            {
+                SetPositionInParent(Parent.SceneControl.GetChildCount());
+            }
+        }
+
         /// <summary>
         ///     Called when this control receives focus.
         /// </summary>
         protected virtual void FocusEntered()
         {
-            UserInterfaceManager.FocusEntered(this);
+            UserInterfaceManagerInternal.FocusEntered(this);
         }
 
         /// <summary>
@@ -568,27 +983,37 @@ namespace SS14.Client.UserInterface
         /// </summary>
         protected virtual void FocusExited()
         {
-            UserInterfaceManager.FocusExited(this);
+            UserInterfaceManagerInternal.FocusExited(this);
         }
 
         public bool HasFocus()
         {
-            return SceneControl.HasFocus();
+            return GameController.OnGodot ? SceneControl.HasFocus() : default;
         }
 
         public void GrabFocus()
         {
-            SceneControl.GrabFocus();
+            if (GameController.OnGodot)
+            {
+                SceneControl.GrabFocus();
+            }
         }
 
         public void ReleaseFocus()
         {
-            SceneControl?.ReleaseFocus();
+            if (GameController.OnGodot)
+            {
+                SceneControl?.ReleaseFocus();
+            }
+        }
+
+        protected virtual void Resized()
+        {
         }
 
         internal static Control InstanceScene(string resourcePath)
         {
-            var res = (Godot.PackedScene)Godot.ResourceLoader.Load(resourcePath);
+            var res = (Godot.PackedScene) Godot.ResourceLoader.Load(resourcePath);
             return InstanceScene(res);
         }
 
@@ -604,14 +1029,16 @@ namespace SS14.Client.UserInterface
         //         from SS14.Client.Godot I *think*?
         internal static Control InstanceScene(Godot.PackedScene scene)
         {
-            var root = (Godot.Control)scene.Instance();
+            var root = (Godot.Control) scene.Instance();
             return WrapGodotControl(null, root);
         }
 
         private static Control WrapGodotControl(Control parent, Godot.Control control)
         {
             var type = FindGodotTranslationType(control);
-            var newControl = (Control)Activator.CreateInstance(type, control);
+            var newControl = (Control) Activator.CreateInstance(type,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.CreateInstance | BindingFlags.NonPublic,
+                null, new object[] {control}, null, null);
 
             if (parent != null)
             {
@@ -651,6 +1078,7 @@ namespace SS14.Client.UserInterface
             {
                 SetupGodotTranslationCache();
             }
+
             var original = control.GetType();
             var tmp = original;
             // CanvasItem is the parent of Godot.Control so reaching it means we passed Godot.Control.
@@ -669,27 +1097,32 @@ namespace SS14.Client.UserInterface
                 tmp = tmp.BaseType;
             }
 
-            throw new InvalidOperationException("Managed to pass Godot.Control when finding translations. This should be impossible!");
+            throw new InvalidOperationException(
+                "Managed to pass Godot.Control when finding translations. This should be impossible!");
         }
 
         private static void SetupGodotTranslationCache()
         {
             GodotTranslationCache = new Dictionary<Type, Type>();
             var refl = IoCManager.Resolve<IReflectionManager>();
-            var godotAsm = AppDomain.CurrentDomain.GetAssemblyByName("GodotSharp");
             foreach (var childType in refl.GetAllChildren<Control>(inclusive: true))
             {
-                var childName = childType.Name;
-                var godotType = godotAsm.GetType($"Godot.{childName}");
+                var attr = childType.GetCustomAttribute<ControlWrapAttribute>();
+                if (attr == null)
+                {
+                    continue;
+                }
+
+                var godotType = attr.ConcreteType;
                 if (godotType == null)
                 {
-                    Logger.Debug($"Unable to find Godot type for {childType}.");
                     continue;
                 }
 
                 if (GodotTranslationCache.TryGetValue(godotType, out var dupe))
                 {
-                    Logger.Error($"Found multiple SS14 Control types pointing to a single Godot Control type. Godot: {godotType}, first: {dupe}, second: {childType}");
+                    Logger.Error(
+                        $"Found multiple SS14 Control types pointing to a single Godot Control type. Godot: {godotType}, first: {dupe}, second: {childType}");
                     continue;
                 }
 
@@ -699,46 +1132,55 @@ namespace SS14.Client.UserInterface
             if (!GodotTranslationCache.ContainsKey(typeof(Godot.Control)))
             {
                 GodotTranslationCache = null;
-                throw new InvalidOperationException("We don't even have the base Godot Control in the translation cache. We can't use scene instancing like this!");
+                throw new InvalidOperationException(
+                    "We don't even have the base Godot Control in the translation cache. We can't use scene instancing like this!");
             }
         }
 
         public void SetAnchorPreset(LayoutPreset preset, bool keepMargin = false)
         {
-            SceneControl.SetAnchorsPreset((Godot.Control.LayoutPreset)preset, keepMargin);
+            if (GameController.OnGodot)
+            {
+                SceneControl.SetAnchorsPreset((Godot.Control.LayoutPreset) preset, keepMargin);
+            }
         }
 
-        public void SetMarginsPreset(LayoutPreset preset, LayoutPresetMode resizeMode = LayoutPresetMode.Minsize, int margin = 0)
+        public void SetMarginsPreset(LayoutPreset preset, LayoutPresetMode resizeMode = LayoutPresetMode.Minsize,
+            int margin = 0)
         {
-            SceneControl.SetMarginsPreset((Godot.Control.LayoutPreset)preset, (Godot.Control.LayoutPresetMode)resizeMode, margin);
+            if (GameController.OnGodot)
+            {
+                SceneControl.SetMarginsPreset((Godot.Control.LayoutPreset) preset,
+                    (Godot.Control.LayoutPresetMode) resizeMode, margin);
+            }
         }
 
         public enum LayoutPreset : byte
         {
-            TopLeft = Godot.Control.LayoutPreset.TopLeft,
-            TopRight = Godot.Control.LayoutPreset.TopRight,
-            BottomLeft = Godot.Control.LayoutPreset.BottomLeft,
-            BottomRight = Godot.Control.LayoutPreset.BottomRight,
-            CenterLeft = Godot.Control.LayoutPreset.CenterLeft,
-            CenterTop = Godot.Control.LayoutPreset.CenterTop,
-            CenterRight = Godot.Control.LayoutPreset.CenterRight,
-            CenterBottom = Godot.Control.LayoutPreset.CenterBottom,
-            Center = Godot.Control.LayoutPreset.Center,
-            LeftWide = Godot.Control.LayoutPreset.LeftWide,
-            TopWide = Godot.Control.LayoutPreset.TopWide,
-            RightWide = Godot.Control.LayoutPreset.RightWide,
-            BottomWide = Godot.Control.LayoutPreset.BottomWide,
-            VerticalCenterWide = Godot.Control.LayoutPreset.VcenterWide,
-            HorizontalCenterWide = Godot.Control.LayoutPreset.VcenterWide,
-            Wide = Godot.Control.LayoutPreset.Wide,
+            TopLeft = 0,
+            TopRight = 1,
+            BottomLeft = 2,
+            BottomRight = 3,
+            CenterLeft = 4,
+            CenterTop = 5,
+            CenterRight = 6,
+            CenterBottom = 7,
+            Center = 8,
+            LeftWide = 9,
+            TopWide = 10,
+            RightWide = 11,
+            BottomWide = 12,
+            VerticalCenterWide = 13,
+            HorizontalCenterWide = 14,
+            Wide = 15,
         }
 
         public enum LayoutPresetMode : byte
         {
-            Minsize = Godot.Control.LayoutPresetMode.Minsize,
-            KeepWidth = Godot.Control.LayoutPresetMode.KeepWidth,
-            KeepHeight = Godot.Control.LayoutPresetMode.KeepHeight,
-            KeepSize = Godot.Control.LayoutPresetMode.KeepSize,
+            Minsize = 0,
+            KeepWidth = 1,
+            KeepHeight = 2,
+            KeepSize = 3,
         }
 
         /// <summary>
@@ -755,6 +1197,7 @@ namespace SS14.Client.UserInterface
             ///     Fill as much space as possible in a container, without pushing others.
             /// </summary>
             Fill = 1,
+
             /// <summary>
             ///     Fill as much space as possible in a container, pushing other nodes.
             ///     The ratio of pushing if there's multiple set to expand is depenent on <see cref="SizeFlagsStretchRatio" />
@@ -777,24 +1220,96 @@ namespace SS14.Client.UserInterface
             ShrinkEnd = 8,
         }
 
-        public void AddColorOverride(string name, Color color)
+        protected void SetColorOverride(string name, Color? color)
         {
-            SceneControl.AddColorOverride(name, color.Convert());
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+            // So here's an interesting one.
+            // Godot's AddColorOverride and such API on controls
+            // Doesn't actually have a way to REMOVE the override.
+            // Passing null via Set() does though.
+            if (color != null)
+            {
+                SceneControl.AddColorOverride(name, color.Value.Convert());
+            }
+            else
+            {
+                SceneControl.Set($"custom_colors/{name}", null);
+            }
         }
 
-        public void AddConstantOverride(string name, int constant)
+        protected Color? GetColorOverride(string name)
         {
-            SceneControl.AddConstantOverride(name, constant);
+            if (!GameController.OnGodot)
+            {
+                return default;
+            }
+            return SceneControl.HasColorOverride(name) ? SceneControl.GetColor(name).Convert() : (Color?) null;
         }
 
-        public void AddStyleBoxOverride(string name, StyleBox styleBox)
+        protected void SetConstantOverride(string name, int? constant)
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+            if (constant != null)
+            {
+                SceneControl.AddConstantOverride(name, constant.Value);
+            }
+            else
+            {
+                SceneControl.Set($"custom_constants/{name}", null);
+            }
+        }
+
+        protected int? GetConstantOverride(string name)
+        {
+            if (!GameController.OnGodot)
+            {
+                return default;
+            }
+            return SceneControl.HasConstantOverride(name) ? SceneControl.GetConstant(name) : (int?) null;
+        }
+
+        protected void SetStyleBoxOverride(string name, StyleBox styleBox)
+        {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             SceneControl.AddStyleboxOverride(name, styleBox.GodotStyleBox);
         }
 
-        public void AddFontOverride(string name, Font font)
+        protected StyleBox GetStyleBoxOverride(string name)
         {
+            if (!GameController.OnGodot)
+            {
+                return default;
+            }
+            var box = SceneControl.HasStyleboxOverride(name) ? SceneControl.GetStylebox(name) : null;
+            return box == null ? null : new GodotStyleBoxWrap(box);
+        }
+
+        protected void SetFontOverride(string name, Font font)
+        {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             SceneControl.AddFontOverride(name, font);
+        }
+
+        protected Font GetFontOverride(string name)
+        {
+            if (!GameController.OnGodot)
+            {
+                return default;
+            }
+            var font = SceneControl.HasFontOverride(name) ? SceneControl.GetFont(name) : null;
+            return font == null ? null : new GodotWrapFont(font);
         }
 
         public void DoUpdate(ProcessFrameEventArgs args)
@@ -812,29 +1327,35 @@ namespace SS14.Client.UserInterface
 
         public enum CursorShape
         {
-            Arrow = Godot.Control.CursorShape.Arrow,
-            IBeam = Godot.Control.CursorShape.Ibeam,
-            PointingHand = Godot.Control.CursorShape.PointingHand,
-            Cross = Godot.Control.CursorShape.Cross,
-            Wait = Godot.Control.CursorShape.Wait,
-            Busy = Godot.Control.CursorShape.Busy,
-            Drag = Godot.Control.CursorShape.Drag,
-            CanDrop = Godot.Control.CursorShape.CanDrop,
-            Forbidden = Godot.Control.CursorShape.Forbidden,
-            VSize = Godot.Control.CursorShape.Vsize,
-            HSize = Godot.Control.CursorShape.Hsize,
-            BDiagSize = Godot.Control.CursorShape.Bdiagsize,
-            FDiagSize = Godot.Control.CursorShape.Fdiagsize,
-            Move = Godot.Control.CursorShape.Move,
-            VSplit = Godot.Control.CursorShape.Vsplit,
-            HSplit = Godot.Control.CursorShape.Hsplit,
-            Help = Godot.Control.CursorShape.Help,
+            Arrow = 0,
+            IBeam = 1,
+            PointingHand = 2,
+            Cross = 3,
+            Wait = 4,
+            Busy = 5,
+            Drag = 6,
+            CanDrop = 7,
+            Forbidden = 8,
+            VSize = 9,
+            HSize = 10,
+            BDiagSize = 11,
+            FDiagSize = 12,
+            Move = 13,
+            VSplit = 14,
+            HSplit = 15,
+            Help = 16,
         }
 
         public CursorShape DefaultCursorShape
         {
-            get => (CursorShape)SceneControl.GetDefaultCursorShape();
-            set => SceneControl.SetDefaultCursorShape((Godot.Control.CursorShape)value);
+            get => GameController.OnGodot ? (CursorShape) SceneControl.GetDefaultCursorShape() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.SetDefaultCursorShape((Godot.Control.CursorShape) value);
+                }
+            }
         }
 
         /// <summary>
@@ -843,20 +1364,22 @@ namespace SS14.Client.UserInterface
         public enum MouseFilterMode
         {
             /// <summary>
-            ///     The control will not be considered at all, and will not have any effects.
-            /// </summary>
-            Ignore = Godot.Control.MouseFilterEnum.Ignore,
-            /// <summary>
             ///     The control will be able to receive mouse buttons events.
             ///     Furthermore, if a control with this mode does get clicked,
             ///     the event automatically gets marked as handled.
             /// </summary>
-            Pass = Godot.Control.MouseFilterEnum.Pass,
+            Pass = 1,
+
             /// <summary>
             ///     The control will be able to receive mouse button events like <see cref="Pass"/>,
             ///     but the event will be stopped and handled even if the relevant events do not handle it.
             /// </summary>
-            Stop = Godot.Control.MouseFilterEnum.Stop,
+            Stop = 0,
+
+            /// <summary>
+            ///     The control will not be considered at all, and will not have any effects.
+            /// </summary>
+            Ignore = 2,
         }
 
         /// <summary>
@@ -864,10 +1387,34 @@ namespace SS14.Client.UserInterface
         /// </summary>
         /// <param name="path">The resource path to the scene file to load.</param>
         /// <returns>The root of the loaded scene.</returns>
-        protected static Godot.Control LoadScene(string path)
+        private protected static Godot.Control LoadScene(string path)
         {
-            var res = (Godot.PackedScene)Godot.ResourceLoader.Load(path);
-            return (Godot.Control)res.Instance();
+            var scene2 = (Godot.PackedScene) Godot.ResourceLoader.Load(path);
+            return (Godot.Control) scene2.Instance();
+        }
+
+        [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+        [BaseTypeRequired(typeof(Control))]
+        internal class ControlWrapAttribute : Attribute
+        {
+            public readonly string InstanceString;
+            public readonly Type ConcreteType;
+
+            public ControlWrapAttribute(Type concreteType)
+            {
+                ConcreteType = concreteType;
+            }
+
+            public ControlWrapAttribute(Type concreteType, string instanceString)
+            {
+                ConcreteType = concreteType;
+                InstanceString = instanceString;
+            }
+
+            public ControlWrapAttribute(string instanceString)
+            {
+                InstanceString = instanceString;
+            }
         }
     }
 }

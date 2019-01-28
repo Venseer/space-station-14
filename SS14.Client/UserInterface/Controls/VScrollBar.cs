@@ -7,19 +7,22 @@ using SS14.Shared.Log;
 
 namespace SS14.Client.UserInterface.Controls
 {
+    [ControlWrap(typeof(Godot.VScrollBar))]
     public class VScrollBar : ScrollBar
     {
         public VScrollBar() : base()
         {
         }
+
         public VScrollBar(string name) : base(name)
         {
         }
-        public VScrollBar(Godot.ScrollBar control) : base(control)
+
+        internal VScrollBar(Godot.ScrollBar control) : base(control)
         {
         }
 
-        protected override Godot.Control SpawnSceneControl()
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.VScrollBar();
         }

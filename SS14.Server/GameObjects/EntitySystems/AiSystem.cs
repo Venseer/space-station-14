@@ -2,8 +2,9 @@
 using System.Collections.Generic;
 using SS14.Server.AI;
 using SS14.Server.GameObjects.Components;
+using SS14.Server.Interfaces.Timing;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.System;
+using SS14.Shared.GameObjects.Systems;
 using SS14.Shared.Interfaces.Reflection;
 using SS14.Shared.IoC;
 
@@ -12,17 +13,13 @@ namespace SS14.Server.GameObjects.EntitySystems
     internal class AiSystem : EntitySystem
     {
         private readonly Dictionary<string, Type> _processorTypes = new Dictionary<string, Type>();
+        private IPauseManager _pauseManager;
 
         public AiSystem()
         {
             // register entity query
-            EntityQuery = new ComponentEntityQuery
-            {
-                OneSet = new List<Type>
-                {
-                    typeof(AiControllerComponent),
-                },
-            };
+            EntityQuery = new TypeEntityQuery(typeof(AiControllerComponent));
+            _pauseManager = IoCManager.Resolve<IPauseManager>();
 
             var reflectionMan = IoCManager.Resolve<IReflectionManager>();
             var processors = reflectionMan.GetAllChildren<AiLogicProcessor>();
@@ -41,6 +38,11 @@ namespace SS14.Server.GameObjects.EntitySystems
             var entities = EntityManager.GetEntities(EntityQuery);
             foreach (var entity in entities)
             {
+                if (_pauseManager.IsEntityPaused(entity))
+                {
+                    continue;
+                }
+
                 var aiComp = entity.GetComponent<AiControllerComponent>();
                 if (aiComp.Processor == null)
                 {

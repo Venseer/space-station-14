@@ -1,11 +1,12 @@
-﻿using SS14.Shared.Interfaces.GameObjects;
-using SS14.Shared.Interfaces.GameObjects.System;
-using SS14.Shared.Interfaces.Reflection;
-using SS14.Shared.IoC;
-using SS14.Shared.Network.Messages;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using SS14.Shared.Interfaces.GameObjects;
+using SS14.Shared.Interfaces.GameObjects.Systems;
+using SS14.Shared.Interfaces.Reflection;
+using SS14.Shared.IoC;
+using SS14.Shared.Log;
+using SS14.Shared.Network.Messages;
 
 namespace SS14.Shared.GameObjects
 {
@@ -13,6 +14,7 @@ namespace SS14.Shared.GameObjects
     {
         [Dependency]
         private readonly IReflectionManager ReflectionManager;
+
         /// <summary>
         /// Maps system types to instances.
         /// </summary>
@@ -26,12 +28,14 @@ namespace SS14.Shared.GameObjects
         /// <exception cref="InvalidOperationException">Thrown if the specified type is already registered by another system.</exception>
         /// <exception cref="InvalidEntitySystemException">Thrown if the entity system instance is not registered with this <see cref="EntitySystemManager"/></exception>
         /// <exception cref="ArgumentNullException">Thrown if the provided system is null.</exception>
-        public void RegisterMessageType<T>(IEntitySystem regSystem) where T : EntitySystemMessage
+        public void RegisterMessageType<T>(IEntitySystem regSystem)
+            where T : EntitySystemMessage
         {
             if (regSystem == null)
             {
                 throw new ArgumentNullException(nameof(regSystem));
             }
+
             Type type = typeof(T);
 
             if (!Systems.ContainsValue(regSystem))
@@ -52,7 +56,8 @@ namespace SS14.Shared.GameObjects
         }
 
         /// <exception cref="InvalidEntitySystemException">Thrown if the provided type is not registered.</exception>
-        public T GetEntitySystem<T>() where T : IEntitySystem
+        public T GetEntitySystem<T>()
+            where T : IEntitySystem
         {
             Type type = typeof(T);
             if (!Systems.ContainsKey(type))
@@ -63,16 +68,32 @@ namespace SS14.Shared.GameObjects
             return (T)Systems[type];
         }
 
+        /// <inheritdoc />
+        public bool TryGetEntitySystem<T>(out T entitySystem)
+            where T : IEntitySystem
+        {
+            if (Systems.TryGetValue(typeof(T), out var system))
+            {
+                entitySystem = (T) system;
+                return true;
+            }
+
+            entitySystem = default;
+            return false;
+        }
+
         public void Initialize()
         {
             foreach (Type type in ReflectionManager.GetAllChildren<IEntitySystem>())
             {
+                Logger.DebugS("go.sys", "Initializing entity system {0}", type);
                 //Force initialization of all systems
                 var instance = (IEntitySystem)Activator.CreateInstance(type);
                 AddSystem(instance);
                 instance.RegisterMessageTypes();
                 instance.SubscribeEvents();
             }
+
             foreach (IEntitySystem system in Systems.Values)
                 system.Initialize();
         }
@@ -106,6 +127,7 @@ namespace SS14.Shared.GameObjects
             {
                 RemoveSystem(system);
             }
+
             SystemMessageTypes.Clear();
         }
 
@@ -134,6 +156,5 @@ namespace SS14.Shared.GameObjects
         }
     }
 
-    public class InvalidEntitySystemException : Exception
-    { }
+    public class InvalidEntitySystemException : Exception { }
 }

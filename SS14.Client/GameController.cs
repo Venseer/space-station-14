@@ -1,5 +1,4 @@
 ﻿using SS14.Client.Console;
-using SS14.Client.GodotGlue;
 using SS14.Client.Interfaces;
 using SS14.Client.Interfaces.GameObjects;
 using SS14.Client.Interfaces.GameStates;
@@ -31,99 +30,100 @@ using SS14.Shared.Network.Messages;
 using SS14.Shared.Prototypes;
 using SS14.Shared.Utility;
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Threading;
+using JetBrains.Annotations;
+using SS14.Client.ResourceManagement;
+using SS14.Client.Utility;
+using SS14.Client.ViewVariables;
+using SS14.Shared;
+using SS14.Shared.Asynchronous;
 using SS14.Shared.Interfaces.Resources;
 
 namespace SS14.Client
 {
     // Gets automatically ran by SS14.Client.Godot.
-    public sealed partial class GameController : ClientEntryPoint, IGameController
+    [UsedImplicitly]
+    internal sealed partial class GameController : IGameControllerInternal
     {
+        public enum DisplayMode
+        {
+            Headless,
+            Godot,
+            OpenGL
+        }
+
+        internal static DisplayMode Mode { get; private set; } = DisplayMode.Headless;
+
+        internal static bool OnGodot => Mode == DisplayMode.Godot;
+
         /// <summary>
         ///     QueueFreeing a Godot node during finalization can cause segfaults.
         ///     As such, this var is set as soon as we tell Godot to shut down proper.
         /// </summary>
         public static bool ShuttingDownHard { get; private set; } = false;
 
-        [Dependency]
-        readonly IConfigurationManager _configurationManager;
-        [Dependency]
-        readonly IResourceCache _resourceCache;
-        [Dependency]
-        readonly ISceneTreeHolder _sceneTreeHolder;
-        [Dependency]
-        readonly IResourceManager _resourceManager;
-        [Dependency]
-        readonly ISS14Serializer _serializer;
-        [Dependency]
-        readonly IPrototypeManager _prototypeManager;
-        [Dependency]
-        readonly IClientTileDefinitionManager _tileDefinitionManager;
-        [Dependency]
-        readonly IClientNetManager _networkManager;
-        [Dependency]
-        readonly IMapManager _mapManager;
-        [Dependency]
-        readonly IStateManager _stateManager;
-        [Dependency]
-        readonly IUserInterfaceManager _userInterfaceManager;
-        [Dependency]
-        readonly IBaseClient _client;
-        [Dependency]
-        readonly IInputManager inputManager;
-        [Dependency]
-        readonly IClientChatConsole _console;
-        [Dependency]
-        readonly ILightManager lightManager;
-        [Dependency]
-        readonly IDisplayManager displayManager;
-        [Dependency]
-        readonly ITimerManager _timerManager;
-        [Dependency]
-        readonly IClientEntityManager _entityManager;
-        [Dependency]
-        readonly IEyeManager eyeManager;
-        [Dependency]
-        readonly GameTiming gameTiming;
-        [Dependency]
-        readonly IPlacementManager placementManager;
-        [Dependency]
-        readonly IClientGameStateManager gameStateManager;
-        [Dependency]
-        readonly IOverlayManager overlayManager;
+        [Dependency] private readonly IConfigurationManager _configurationManager;
+        [Dependency] private readonly IResourceCache _resourceCache;
+        [Dependency] private readonly IResourceManager _resourceManager;
+        [Dependency] private readonly ISS14Serializer _serializer;
+        [Dependency] private readonly IPrototypeManager _prototypeManager;
+        [Dependency] private readonly IClientTileDefinitionManager _tileDefinitionManager;
+        [Dependency] private readonly IClientNetManager _networkManager;
+        [Dependency] private readonly IMapManager _mapManager;
+        [Dependency] private readonly IStateManager _stateManager;
+        [Dependency] private readonly IUserInterfaceManagerInternal _userInterfaceManager;
+        [Dependency] private readonly IBaseClient _client;
+        [Dependency] private readonly IInputManager _inputManager;
+        [Dependency] private readonly IClientChatConsole _console;
+        [Dependency] private readonly ILightManager _lightManager;
+        [Dependency] private readonly IDisplayManager _displayManager;
+        [Dependency] private readonly ITimerManager _timerManager;
+        [Dependency] private readonly IClientEntityManager _entityManager;
+        [Dependency] private readonly IEyeManager _eyeManager;
+        [Dependency] private readonly IPlacementManager _placementManager;
+        [Dependency] private readonly IClientGameStateManager _gameStateManager;
+        [Dependency] private readonly IOverlayManagerInternal _overlayManager;
+        [Dependency] private readonly ILogManager _logManager;
+        [Dependency] private readonly ITaskManager _taskManager;
+        [Dependency] private readonly IViewVariablesManagerInternal _viewVariablesManager;
+        private IDisplayManagerOpenGL _displayManagerOpenGL;
 
-        public override void Main(Godot.SceneTree tree)
+        private void Startup()
         {
-#if !X64
-            throw new InvalidOperationException("The client cannot start outside x64.");
-#endif
-
-            PreInitIoC();
-            IoCManager.Resolve<ISceneTreeHolder>().Initialize(tree);
+            ThreadUtility.MainThread = Thread.CurrentThread;
             InitIoC();
-            Godot.OS.SetWindowTitle("Space Station 14");
             SetupLogging();
 
-            tree.SetAutoAcceptQuit(false);
+            // Set up custom synchronization context.
+            // Sorry Godot.
+            _taskManager.Initialize();
 
             // Load config.
             _configurationManager.LoadFromFile(PathHelpers.ExecutableRelativeFile("client_config.toml"));
 
-            displayManager.Initialize();
+            if (Mode == DisplayMode.OpenGL)
+            {
+                _displayManagerOpenGL = IoCManager.Resolve<IDisplayManagerOpenGL>();
+            }
 
             // Init resources.
             // Doesn't do anything right now because TODO Godot asset management is a bit ad-hoc.
             _resourceCache.LoadBaseResources();
             _resourceCache.LoadLocalResources();
 
+            // Bring display up as soon as resources are mounted.
+            _displayManager.Initialize();
+            _displayManager.SetWindowTitle("Space Station 14");
+
             //identical code for server in baseserver
-            if (!AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Content.Shared")
-                && !AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Sandbox.Shared"))
+            if (!AssemblyLoader.TryLoadAssembly<GameShared>(_resourceManager, $"Content.Shared"))
             {
                 Logger.Warning($"[ENG] Could not load any Shared DLL.");
             }
 
-            if (!AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Content.Client")
-                && !AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Sandbox.Client"))
+            if (!AssemblyLoader.TryLoadAssembly<GameClient>(_resourceManager, $"Content.Client"))
             {
                 Logger.Warning($"[ENG] Could not load any Client DLL.");
             }
@@ -131,30 +131,39 @@ namespace SS14.Client
             // Call Init in game assemblies.
             AssemblyLoader.BroadcastRunLevel(AssemblyLoader.RunLevel.Init);
 
-            eyeManager.Initialize();
+            _eyeManager.Initialize();
             _serializer.Initialize();
             _userInterfaceManager.Initialize();
-            _tileDefinitionManager.Initialize();
             _networkManager.Initialize(false);
-            inputManager.Initialize();
+            _inputManager.Initialize();
             _console.Initialize();
             _prototypeManager.LoadDirectory(new ResourcePath(@"/Prototypes/"));
             _prototypeManager.Resync();
+            _tileDefinitionManager.Initialize();
             _mapManager.Initialize();
-            placementManager.Initialize();
-            lightManager.Initialize();
+            _placementManager.Initialize();
+            _lightManager.Initialize();
             _entityManager.Initialize();
-            gameStateManager.Initialize();
-            overlayManager.Initialize();
+            _gameStateManager.Initialize();
+            _overlayManager.Initialize();
+            _viewVariablesManager.Initialize();
 
             _client.Initialize();
 
-            _stateManager.RequestStateChange<MainScreen>();
-        }
+            AssemblyLoader.BroadcastRunLevel(AssemblyLoader.RunLevel.PostInit);
 
-        public override void QuitRequest()
-        {
-            Shutdown("OS quit request");
+            _stateManager.RequestStateChange<MainScreen>();
+
+            if (_displayManagerOpenGL != null)
+            {
+                _displayManagerOpenGL.Ready();
+            }
+
+            var args = GetCommandLineArgs();
+            if (args.Contains("--connect"))
+            {
+                _client.ConnectToServer("127.0.0.1", 1212);
+            }
         }
 
         public void Shutdown(string reason = null)
@@ -167,56 +176,51 @@ namespace SS14.Client
             {
                 Logger.Info("Shutting down!");
             }
+
+            if (Mode != DisplayMode.Godot)
+            {
+                _mainLoop.Running = false;
+            }
             Logger.Debug("Goodbye");
             IoCManager.Clear();
             ShuttingDownHard = true;
-            _sceneTreeHolder.SceneTree.Quit();
+            // Hahaha Godot is crashing absurdly and I can't be bothered to fix it.
+            // Hey now it shuts down easily.
+            Environment.Exit(0);
         }
 
-        public override void PhysicsProcess(float delta)
+        private void Update(float frameTime)
         {
-            // Can't be too certain.
-            gameTiming.InSimulation = true;
-            gameTiming._tickRemainderTimer.Restart();
-            try
-            {
-                if (!gameTiming.Paused)
-                {
-                    gameTiming.CurTick++;
-                    _networkManager.ProcessPackets();
-                    var eventArgs = new ProcessFrameEventArgs(delta);
-                    AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.PreEngine, eventArgs.Elapsed);
-                    _timerManager.UpdateTimers(delta);
-                    _userInterfaceManager.Update(eventArgs);
-                    _stateManager.Update(eventArgs);
-                    AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.PostEngine, eventArgs.Elapsed);
-                }
-            }
-            finally
-            {
-                gameTiming.InSimulation = false;
-            }
-        }
-
-        public override void FrameProcess(float delta)
-        {
-            gameTiming.InSimulation = false; // Better safe than sorry.
-            gameTiming.RealFrameTime = TimeSpan.FromSeconds(delta);
-            gameTiming.TickRemainder = gameTiming._tickRemainderTimer.Elapsed;
-
-            var eventArgs = new RenderFrameEventArgs(delta);
-            AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.FramePreEngine, eventArgs.Elapsed);
-            lightManager.FrameUpdate(eventArgs);
-            _stateManager.FrameUpdate(eventArgs);
-            overlayManager.FrameUpdate(eventArgs);
-            AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.FramePostEngine, eventArgs.Elapsed);
+            var eventArgs = new ProcessFrameEventArgs(frameTime);
+            _networkManager.ProcessPackets();
+            AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.PreEngine, eventArgs.Elapsed);
+            _timerManager.UpdateTimers(frameTime);
+            _taskManager.ProcessPendingTasks();
+            _userInterfaceManager.Update(eventArgs);
+            _stateManager.Update(eventArgs);
+            AssemblyLoader.BroadcastUpdate(AssemblyLoader.UpdateLevel.PostEngine, eventArgs.Elapsed);
         }
 
         private void SetupLogging()
         {
-            var mgr = IoCManager.Resolve<ILogManager>();
-            mgr.RootSawmill.AddHandler(new GodotLogHandler());
-            mgr.GetSawmill("res.typecheck").Level = LogLevel.Info;
+            if (OnGodot)
+            {
+                _logManager.RootSawmill.AddHandler(new GodotLogHandler());
+            }
+            else
+            {
+                _logManager.RootSawmill.AddHandler(new ConsoleLogHandler());
+            }
+
+            _logManager.GetSawmill("res.typecheck").Level = LogLevel.Info;
+            _logManager.GetSawmill("res.tex").Level = LogLevel.Info;
+            _logManager.GetSawmill("console").Level = LogLevel.Info;
+            _logManager.GetSawmill("go.sys").Level = LogLevel.Info;
+        }
+
+        public static ICollection<string> GetCommandLineArgs()
+        {
+            return OnGodot ? Godot.OS.GetCmdlineArgs() : Environment.GetCommandLineArgs();
         }
     }
 }

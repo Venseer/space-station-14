@@ -3,16 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using SS14.Shared.Enums;
 using SS14.Shared.Interfaces.Map;
+using SS14.Shared.Interfaces.Timing;
 using SS14.Shared.IoC;
 using SS14.Shared.Log;
 using SS14.Shared.Maths;
 using SS14.Shared.Network.Messages;
+using SS14.Shared.Utility;
 
 namespace SS14.Shared.Map
 {
     /// <inheritdoc />
     public partial class MapManager : IMapManager, IPostInjectInit
     {
+        [Dependency] private protected readonly IGameTiming _gameTiming;
+
         /// <inheritdoc />
         public IMap DefaultMap => GetMap(MapId.Nullspace);
 
@@ -49,6 +53,9 @@ namespace SS14.Shared.Map
 
         private readonly Dictionary<GridId, MapGrid> _grids = new Dictionary<GridId, MapGrid>();
 
+        private readonly List<(uint tick, GridId gridId)> _gridDeletionHistory = new List<(uint, GridId)>();
+        private readonly List<(uint tick, MapId mapId)> _mapDeletionHistory = new List<(uint, MapId)>();
+
         public void PostInject()
         {
             CreateMap(MapId.Nullspace, GridId.Nullspace);
@@ -57,8 +64,26 @@ namespace SS14.Shared.Map
         /// <inheritdoc />
         public void Initialize()
         {
-            _netManager.RegisterNetMessage<MsgMap>(MsgMap.NAME, HandleNetworkMessage);
-            _netManager.RegisterNetMessage<MsgMapReq>(MsgMapReq.NAME, message => SendMap(message.MsgChannel));
+            // So uh I removed the contents from this but I'm too lazy to remove the Initialize method.
+            // Deal with it.
+        }
+
+        public void Startup()
+        {
+            // Ditto, removed contents but too lazy to remove method.
+        }
+
+        public void Shutdown()
+        {
+            foreach (var map in _maps.Keys.ToArray())
+            {
+                if (map != MapId.Nullspace)
+                {
+                    DeleteMap(map);
+                }
+            }
+
+            DebugTools.Assert(_grids.Count == 1);
         }
 
         /// <summary>
@@ -72,22 +97,6 @@ namespace SS14.Shared.Map
                 return;
 
             TileChanged?.Invoke(this, new TileChangedEventArgs(tileRef, oldTile));
-
-            if (_netManager.IsClient)
-                return;
-
-            var message = _netManager.CreateNetMessage<MsgMap>();
-
-            message.MessageType = MapMessage.TurfUpdate;
-            message.SingleTurf = new MsgMap.Turf
-            {
-                X = tileRef.X,
-                Y = tileRef.Y,
-                Tile = (uint)tileRef.Tile
-            };
-            message.GridIndex = tileRef.LocalPos.GridID;
-
-            _netManager.ServerSendToAll(message);
         }
 
 
@@ -111,12 +120,7 @@ namespace SS14.Shared.Map
             if (_netManager.IsClient)
                 return;
 
-            var msg = _netManager.CreateNetMessage<MsgMap>();
-
-            msg.MessageType = MapMessage.DeleteMap;
-            msg.MapIndex = mapID;
-
-            _netManager.ServerSendToAll(msg);
+            _mapDeletionHistory.Add((_gameTiming.CurTick, mapID));
         }
 
         /// <inheritdoc />
@@ -150,16 +154,6 @@ namespace SS14.Shared.Map
             _maps.Add(actualID, newMap);
             MapCreated?.Invoke(this, new MapEventArgs(newMap));
             newMap.DefaultGrid = CreateGrid(newMap.Index, defaultGridID);
-
-            if (_netManager.IsClient)
-                return newMap;
-
-            var msg = _netManager.CreateNetMessage<MsgMap>();
-
-            msg.MessageType = MapMessage.CreateMap;
-            msg.MapIndex = newMap.Index;
-
-            _netManager.ServerSendToAll(msg);
 
             return newMap;
         }
@@ -255,6 +249,12 @@ namespace SS14.Shared.Map
             _grids.Remove(grid.Index);
 
             OnGridRemoved?.Invoke(gridID);
+
+            if (_netManager.IsClient)
+            {
+                return;
+            }
+            _gridDeletionHistory.Add((_gameTiming.CurTick, gridID));
         }
     }
 
@@ -312,12 +312,12 @@ namespace SS14.Shared.Map
         /// </summary>
         public IMapGrid Grid { get; }
 
-        public IReadOnlyCollection<(int x, int y, Tile tile)> Modified { get; }
+        public IReadOnlyCollection<(MapIndices position, Tile tile)> Modified { get; }
 
         /// <summary>
         ///     Creates a new instance of this class.
         /// </summary>
-        public GridChangedEventArgs(IMapGrid grid, IReadOnlyCollection<(int x, int y, Tile tile)> modified)
+        public GridChangedEventArgs(IMapGrid grid, IReadOnlyCollection<(MapIndices position, Tile tile)> modified)
         {
             Grid = grid;
             Modified = modified;

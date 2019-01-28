@@ -18,10 +18,7 @@ namespace SS14.Shared.GameObjects
             Text = text;
         }
     }
-
-    [Serializable, NetSerializable]
-    public class SpriteChangedMsg : ComponentMessage { }
-
+    
     [Serializable, NetSerializable]
     public class BumpedEntMsg : ComponentMessage
     {
@@ -30,20 +27,6 @@ namespace SS14.Shared.GameObjects
         public BumpedEntMsg(IEntity entity)
         {
             Entity = entity;
-        }
-    }
-
-    [Serializable, NetSerializable]
-    public class BoundKeyChangedMsg : ComponentMessage
-    {
-        public BoundKeyFunction Function { get; }
-        public BoundKeyState State { get; }
-
-        public BoundKeyChangedMsg(BoundKeyFunction function, BoundKeyState state)
-        {
-            Directed = true;
-            Function = function;
-            State = state;
         }
     }
 

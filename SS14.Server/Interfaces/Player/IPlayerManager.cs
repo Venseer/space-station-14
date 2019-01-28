@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using SS14.Server.Player;
 using SS14.Shared.Enums;
 using SS14.Shared.GameStates;
+using SS14.Shared.Input;
 using SS14.Shared.Interfaces.Network;
 using SS14.Shared.Map;
+using SS14.Shared.Network;
 using SS14.Shared.Players;
 
 namespace SS14.Server.Interfaces.Player
@@ -16,20 +18,16 @@ namespace SS14.Server.Interfaces.Player
     {
         /// <summary>
         ///     Number of players currently connected to this server.
+        ///     Fetching this is thread safe.
         /// </summary>
         int PlayerCount { get; }
 
-        string PlayerPrototypeName { get; set; }
+        BoundKeyMap KeyMap { get; }
 
         /// <summary>
         ///     Maximum number of players that can connect to this server at one time.
         /// </summary>
         int MaxPlayers { get; }
-
-        /// <summary>
-        ///     Fallback spawn point to use if map does not provide it.
-        /// </summary>
-        GridLocalCoordinates FallbackSpawnPoint { get; set; }
 
         /// <summary>
         ///     Raised when the <see cref="SessionStatus" /> of a <see cref="IPlayerSession" /> is changed.
@@ -39,33 +37,32 @@ namespace SS14.Server.Interfaces.Player
         /// <summary>
         ///     Initializes the manager.
         /// </summary>
-        /// <param name="baseServer">The server that instantiated this manager.</param>
         /// <param name="maxPlayers">Maximum number of players that can connect to this server at one time.</param>
         void Initialize(int maxPlayers);
 
         /// <summary>
         ///     Returns the client session of the networkId.
         /// </summary>
-        /// <param name="index">The id of the client.</param>
         /// <returns></returns>
-        IPlayerSession GetSessionById(PlayerIndex index);
+        IPlayerSession GetSessionById(NetSessionId index);
 
         IPlayerSession GetSessionByChannel(INetChannel channel);
+
+        bool TryGetSessionById(NetSessionId sessionId, out IPlayerSession session);
 
         /// <summary>
         ///     Checks to see if a PlayerIndex is a valid session.
         /// </summary>
-        bool ValidSessionId(PlayerIndex index);
+        bool ValidSessionId(NetSessionId index);
 
-        //TODO: Move to IPlayerSession
-        void SpawnPlayerMob(IPlayerSession session);
+        IPlayerData GetPlayerData(NetSessionId sessionId);
+        bool TryGetPlayerData(NetSessionId sessionId, out IPlayerData data);
+        bool HasPlayerData(NetSessionId sessionId);
 
-        void SendJoinGameToAll();
-        void SendJoinLobbyToAll();
+        IEnumerable<IPlayerData> GetAllPlayerData();
 
         void DetachAll();
-        List<IPlayerSession> GetPlayersInLobby();
-        List<IPlayerSession> GetPlayersInRange(GridLocalCoordinates worldPos, int range);
+        List<IPlayerSession> GetPlayersInRange(GridCoordinates worldPos, int range);
         List<IPlayerSession> GetAllPlayers();
         List<PlayerState> GetPlayerStates();
     }

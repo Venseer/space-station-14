@@ -2,7 +2,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using SS14.Shared.GameObjects.Components.Transform;
 using SS14.Shared.Interfaces.Map;
+using SS14.Shared.Maths;
 
 namespace SS14.Shared.Map
 {
@@ -13,12 +15,13 @@ namespace SS14.Shared.Map
         /// </summary>
         internal class Chunk : IMapChunk
         {
-            private const int ChunkVersion = 1;
+            internal uint LastModifiedTick { get; private set; }
             private readonly MapGrid _grid;
             private readonly MapIndices _gridIndices;
             private readonly MapManager _mapManager;
 
-            private readonly Tile[,] _tiles;
+            internal readonly Tile[,] _tiles;
+            private readonly SnapGridCell[,] _snapGrid;
 
             /// <summary>
             ///     Constructs an instance of a MapGrid chunk.
@@ -31,18 +34,17 @@ namespace SS14.Shared.Map
             public Chunk(MapManager manager, MapGrid grid, int x, int y, ushort chunkSize)
             {
                 _mapManager = manager;
+                LastModifiedTick = _mapManager._gameTiming.CurTick;
                 ChunkSize = chunkSize;
                 _grid = grid;
                 _gridIndices = new MapIndices(x, y);
 
                 _tiles = new Tile[ChunkSize, ChunkSize];
+                _snapGrid = new SnapGridCell[ChunkSize, ChunkSize];
             }
 
             /// <inheritdoc />
             public ushort ChunkSize { get; }
-
-            /// <inheritdoc />
-            public uint Version => ChunkVersion;
 
             /// <inheritdoc />
             public int X => _gridIndices.X;
@@ -103,6 +105,7 @@ namespace SS14.Shared.Map
                 var gridTile = ChunkTileToGridTile(new MapIndices(xChunkTile, yChunkTile));
                 var newTileRef = new TileRef(_grid.MapID, _grid.Index, gridTile.X, gridTile.Y, tile);
                 var oldTile = _tiles[xChunkTile, yChunkTile];
+                _grid.LastModifiedTick = LastModifiedTick = _mapManager._gameTiming.CurTick;
                 _mapManager.RaiseOnTileChanged(newTileRef, oldTile);
                 _grid.UpdateAABB(gridTile);
 
@@ -132,8 +135,8 @@ namespace SS14.Shared.Map
             public MapIndices GridTileToChunkTile(MapIndices gridTile)
             {
                 var size = ChunkSize;
-                var x = Mod(gridTile.X, size);
-                var y = Mod(gridTile.Y, size);
+                var x = MathHelper.Mod(gridTile.X, size);
+                var y = MathHelper.Mod(gridTile.Y, size);
                 return new MapIndices(x, y);
             }
 
@@ -141,6 +144,63 @@ namespace SS14.Shared.Map
             public void SetTile(ushort xChunkTile, ushort yChunkTile, ushort tileId, ushort tileData = 0)
             {
                 SetTile(xChunkTile, yChunkTile, new Tile(tileId, tileData));
+            }
+
+
+            public IEnumerable<SnapGridComponent> GetSnapGridCell(ushort xCell, ushort yCell, SnapGridOffset offset)
+            {
+                var cell = _snapGrid[xCell, yCell];
+                List<SnapGridComponent> list;
+                if (offset == SnapGridOffset.Center)
+                {
+                    list = cell.Center;
+                }
+                else
+                {
+                    list = cell.Edge;
+                }
+
+                if (list != null)
+                {
+                    foreach (var element in list)
+                    {
+                        yield return element;
+                    }
+                }
+            }
+
+            public void AddToSnapGridCell(ushort xCell, ushort yCell, SnapGridOffset offset, SnapGridComponent snap)
+            {
+                ref var cell = ref _snapGrid[xCell, yCell];
+                if (offset == SnapGridOffset.Center)
+                {
+                    if (cell.Center == null)
+                    {
+                        cell.Center = new List<SnapGridComponent>(1);
+                    }
+                    cell.Center.Add(snap);
+                }
+                else
+                {
+                    if (cell.Edge == null)
+                    {
+                        cell.Edge = new List<SnapGridComponent>(1);
+                    }
+                    cell.Edge.Add(snap);
+                }
+            }
+
+            public void RemoveFromSnapGridCell(ushort xCell, ushort yCell, SnapGridOffset offset, SnapGridComponent snap)
+            {
+                ref var cell = ref _snapGrid[xCell, yCell];
+                if (offset == SnapGridOffset.Center)
+                {
+                    cell.Center?.Remove(snap);
+                }
+                else
+                {
+                    cell.Edge?.Remove(snap);
+                }
             }
 
             /// <summary>
@@ -159,17 +219,10 @@ namespace SS14.Shared.Map
                 return $"Chunk {_gridIndices}, {ChunkSize}";
             }
 
-            /// <summary>
-            ///     This method provides floored modulus.
-            ///     C-like languages use truncated modulus for their '%' operator.
-            /// </summary>
-            /// <param name="n">The dividend.</param>
-            /// <param name="d">The divisor.</param>
-            /// <returns>The remainder.</returns>
-            [DebuggerStepThrough]
-            private static int Mod(double n, int d)
+            private struct SnapGridCell
             {
-                return (int)(n - (int)Math.Floor(n / d) * d);
+                public List<SnapGridComponent> Center;
+                public List<SnapGridComponent> Edge;
             }
         }
     }

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using SS14.Client.Interfaces.GameObjects;
-using SS14.Client.Interfaces.Player;
+using SS14.Client.Player;
 using SS14.Client.UserInterface.CustomControls;
 using SS14.Shared.Console;
 using SS14.Shared.GameObjects;
@@ -105,7 +105,7 @@ namespace SS14.Client.Console
             Logger.Debug($"Got it! {msg.Text}");
             var channel = msg.Channel;
             var text = msg.Text;
-            var index = msg.Index;
+            var index = msg.SessionId;
             var entityId = msg.EntityId;
 
             switch (channel)

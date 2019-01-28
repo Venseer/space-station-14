@@ -3,20 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using SS14.Server.Interfaces.GameObjects;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.Serialization;
+using SS14.Shared.GameObjects.Components.Renderable;
 using SS14.Shared.Log;
 using SS14.Shared.Maths;
+using SS14.Shared.Serialization;
 using SS14.Shared.Utility;
+using SS14.Shared.ViewVariables;
 using YamlDotNet.RepresentationModel;
 
 namespace SS14.Server.GameObjects
 {
-    public class SpriteComponent : Component, ISpriteRenderableComponent
+    public class SpriteComponent : SharedSpriteComponent, ISpriteRenderableComponent
     {
-        public override string Name => "Sprite";
-        public override uint? NetID => NetIDs.SPRITE;
-
-        private List<Layer> Layers = new List<Layer>();
+        const string LayerSerializationCache = "spritelayersrv";
+        private List<PrototypeLayerData> Layers = new List<PrototypeLayerData>();
 
         private bool _visible;
         private DrawDepth _drawDepth = DrawDepth.Objects;
@@ -27,6 +27,7 @@ namespace SS14.Server.GameObjects
         private string _baseRSIPath;
         private Angle _rotation;
 
+        [ViewVariables]
         public DrawDepth DrawDepth
         {
             get => _drawDepth;
@@ -37,6 +38,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public bool Visible
         {
             get => _visible;
@@ -47,6 +49,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public Vector2 Scale
         {
             get => _scale;
@@ -57,6 +60,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public Angle Rotation
         {
             get => _rotation;
@@ -67,6 +71,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public Vector2 Offset
         {
             get => _offset;
@@ -77,6 +82,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public Color Color
         {
             get => _color;
@@ -87,6 +93,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public bool Directional
         {
             get => _directional;
@@ -97,6 +104,7 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        [ViewVariables(VVAccess.ReadWrite)]
         public string BaseRSIPath
         {
             get => _baseRSIPath;
@@ -107,9 +115,30 @@ namespace SS14.Server.GameObjects
             }
         }
 
+        public int AddLayerWithSprite(SpriteSpecifier specifier)
+        {
+            var layer = PrototypeLayerData.New();
+            switch (specifier)
+            {
+                case SpriteSpecifier.Texture tex:
+                    layer.TexturePath = tex.TexturePath.ToString();
+                    break;
+                case SpriteSpecifier.Rsi rsi:
+                    layer.RsiPath = rsi.RsiPath.ToString();
+                    layer.State = rsi.RsiState;
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+
+            Layers.Add(layer);
+            Dirty();
+            return Layers.Count - 1;
+        }
+
         public int AddLayerWithTexture(string texture)
         {
-            var layer = Layer.New();
+            var layer = PrototypeLayerData.New();
             layer.TexturePath = texture;
             Layers.Add(layer);
             Dirty();
@@ -123,7 +152,7 @@ namespace SS14.Server.GameObjects
 
         public int AddLayerWithState(string stateId)
         {
-            var layer = Layer.New();
+            var layer = PrototypeLayerData.New();
             layer.State = stateId;
             Layers.Add(layer);
             Dirty();
@@ -132,13 +161,14 @@ namespace SS14.Server.GameObjects
 
         public int AddLayerWithState(string stateId, string rsiPath)
         {
-            var layer = Layer.New();
+            var layer = PrototypeLayerData.New();
             layer.State = stateId;
             layer.RsiPath = rsiPath;
             Layers.Add(layer);
             Dirty();
             return Layers.Count - 1;
         }
+
         public int AddLayerWithState(string stateId, ResourcePath rsiPath)
         {
             return AddLayerWithState(stateId, rsiPath.ToString());
@@ -148,9 +178,11 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot remove! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot remove! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
+
             Layers.RemoveAt(layer);
             Dirty();
         }
@@ -159,11 +191,43 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set shader! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set shader! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
+
             var thelayer = Layers[layer];
             thelayer.Shader = shaderName;
+            Layers[layer] = thelayer;
+            Dirty();
+        }
+
+        public void LayerSetSprite(int layer, SpriteSpecifier specifier)
+        {
+            if (Layers.Count <= layer)
+            {
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set sprite! Trace:\n{1}",
+                    layer, Environment.StackTrace);
+                return;
+            }
+
+            var thelayer = Layers[layer];
+            switch (specifier)
+            {
+                case SpriteSpecifier.Texture tex:
+                    thelayer.TexturePath = tex.TexturePath.ToString();
+                    thelayer.RsiPath = null;
+                    thelayer.State = null;
+                    break;
+                case SpriteSpecifier.Rsi rsi:
+                    thelayer.TexturePath = null;
+                    thelayer.RsiPath = rsi.RsiPath.ToString();
+                    thelayer.State = rsi.RsiState;
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+
             Layers[layer] = thelayer;
             Dirty();
         }
@@ -172,15 +236,19 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set texture! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite",
+                    "Layer with index '{0}' does not exist, cannot set texture! Trace:\n{1}", layer,
+                    Environment.StackTrace);
                 return;
             }
+
             var thelayer = Layers[layer];
             thelayer.State = null;
             thelayer.TexturePath = texturePath;
             Layers[layer] = thelayer;
             Dirty();
         }
+
         public void LayerSetTexture(int layer, ResourcePath texturePath)
         {
             LayerSetTexture(layer, texturePath.ToString());
@@ -190,9 +258,11 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set set! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set set! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
+
             var thelayer = Layers[layer];
             thelayer.State = stateId;
             thelayer.TexturePath = null;
@@ -204,9 +274,12 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set state & RSI! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite",
+                    "Layer with index '{0}' does not exist, cannot set state & RSI! Trace:\n{1}", layer,
+                    Environment.StackTrace);
                 return;
             }
+
             var thelayer = Layers[layer];
             thelayer.RsiPath = rsiPath;
             thelayer.State = stateId;
@@ -224,7 +297,8 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set RSI! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set RSI! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
 
@@ -243,7 +317,8 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set scale! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set scale! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
 
@@ -257,7 +332,9 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set rotation! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite",
+                    "Layer with index '{0}' does not exist, cannot set rotation! Trace:\n{1}", layer,
+                    Environment.StackTrace);
                 return;
             }
 
@@ -271,7 +348,9 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set visibility! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite",
+                    "Layer with index '{0}' does not exist, cannot set visibility! Trace:\n{1}", layer,
+                    Environment.StackTrace);
                 return;
             }
 
@@ -285,7 +364,8 @@ namespace SS14.Server.GameObjects
         {
             if (Layers.Count <= layer)
             {
-                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set color! Trace:\n{1}", layer, Environment.StackTrace);
+                Logger.ErrorS("go.comp.sprite", "Layer with index '{0}' does not exist, cannot set color! Trace:\n{1}",
+                    layer, Environment.StackTrace);
                 return;
             }
 
@@ -295,160 +375,63 @@ namespace SS14.Server.GameObjects
             Dirty();
         }
 
-        public override void ExposeData(EntitySerializer serializer)
+        public override void ExposeData(ObjectSerializer serializer)
         {
             base.ExposeData(serializer);
 
-            serializer.DataField(ref _visible, "visible", true);
-            serializer.DataField(ref _drawDepth, "drawdepth", DrawDepth.Objects);
-            serializer.DataField(ref _offset, "offset", Vector2.Zero);
-            serializer.DataField(ref _scale, "scale", Vector2.One);
-            serializer.DataField(ref _color, "color", Color.White);
-            serializer.DataField(ref _directional, "directional", true);
-            serializer.DataField(ref _baseRSIPath, "sprite", null);
-        }
+            serializer.DataFieldCached(ref _visible, "visible", true);
+            serializer.DataFieldCached(ref _drawDepth, "drawdepth", DrawDepth.Objects);
+            serializer.DataFieldCached(ref _offset, "offset", Vector2.Zero);
+            serializer.DataFieldCached(ref _scale, "scale", Vector2.One);
+            serializer.DataFieldCached(ref _color, "color", Color.White);
+            serializer.DataFieldCached(ref _directional, "directional", true);
+            serializer.DataFieldCached(ref _baseRSIPath, "sprite", null);
+            serializer.DataFieldCached(ref _rotation, "rotation", Angle.Zero);
 
-        public override void LoadParameters(YamlMappingNode mapping)
-        {
-            base.LoadParameters(mapping);
-
-            if (mapping.TryGetNode("rotation", out var node))
+            // TODO: Writing?
+            if (!serializer.Reading)
             {
-                Rotation = Angle.FromDegrees(node.AsFloat());
+                return;
             }
 
-            if (mapping.TryGetNode("sprite", out node))
+            if (serializer.TryGetCacheData<List<PrototypeLayerData>>(LayerSerializationCache, out var layers))
             {
-                BaseRSIPath = node.AsString();
+                Layers = layers.ShallowClone();
+                return;
             }
 
-            if (mapping.TryGetNode("texture", out node))
-            {
-                if (mapping.HasNode("state"))
-                {
-                    Logger.ErrorS("go.comp.sprite",
-                                  "Cannot use 'texture' if an RSI state is provided. Prototype: '{0}'",
-                                  Owner.Prototype.ID);
-                }
-                else
-                {
-                    var layer = Layer.New();
-                    layer.TexturePath = node.AsString();
-                    Layers.Add(layer);
-                }
-            }
+            var layerData =
+                serializer.ReadDataField<List<PrototypeLayerData>>("layers", new List<PrototypeLayerData>());
 
-            if (mapping.TryGetNode("state", out node))
             {
-                if (BaseRSIPath == null)
+                var baseState = serializer.ReadDataField<string>("state", null);
+                var texturePath = serializer.ReadDataField<string>("texture", null);
+
+                if (baseState != null || texturePath != null)
                 {
-                    Logger.ErrorS("go.comp.sprite",
-                                  "No base RSI set to load states from: "
-                                  + "cannot use 'state' property. Prototype: '{0}'", Owner.Prototype.ID);
-                }
-                else
-                {
-                    var layer = Layer.New();
-                    layer.State = node.AsString();
-                    Layers.Add(layer);
+                    var layerZeroData = PrototypeLayerData.New();
+                    if (!string.IsNullOrWhiteSpace(baseState))
+                    {
+                        layerZeroData.State = baseState;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(texturePath))
+                    {
+                        layerZeroData.TexturePath = texturePath;
+                    }
+
+                    layerData.Insert(0, layerZeroData);
                 }
             }
 
-            if (mapping.TryGetNode("layers", out YamlSequenceNode layers))
-            {
-                foreach (var layernode in layers.Cast<YamlMappingNode>())
-                {
-                    LoadLayerFrom(layernode);
-                }
-            }
-        }
-
-        private void LoadLayerFrom(YamlMappingNode mapping)
-        {
-            var layer = Layer.New();
-
-            if (mapping.TryGetNode("sprite", out var node))
-            {
-                layer.RsiPath = node.AsString();
-            }
-
-            if (mapping.TryGetNode("state", out node))
-            {
-                layer.State = node.AsString();
-            }
-
-            if (mapping.TryGetNode("texture", out node))
-            {
-                if (layer.State != null)
-                {
-                    Logger.ErrorS("go.comp.sprite",
-                                  "Cannot specify 'texture' on a layer if it has an RSI state specified. Prototype: '{0}'",
-                                  Owner.Prototype.ID);
-                }
-                else
-                {
-                    layer.TexturePath = node.AsString();
-                }
-            }
-
-            if (mapping.TryGetNode("shader", out node))
-            {
-                layer.Shader = node.AsString();
-            }
-
-            if (mapping.TryGetNode("scale", out node))
-            {
-                layer.Scale = node.AsVector2();
-            }
-
-            if (mapping.TryGetNode("rotation", out node))
-            {
-                layer.Rotation = node.AsFloat();
-            }
-
-            if (mapping.TryGetNode("visible", out node))
-            {
-                layer.Visible = node.AsBool();
-            }
-
-            if (mapping.TryGetNode("color", out node))
-            {
-                layer.Color = node.AsColor();
-            }
-
-            Layers.Add(layer);
+            serializer.SetCacheData(LayerSerializationCache, layerData.ShallowClone());
+            Layers = layerData;
         }
 
         public override ComponentState GetComponentState()
         {
-            var list = Layers.Select(l => l.ToStateLayer()).ToList();
-            return new SpriteComponentState(Visible, DrawDepth, Scale, Rotation, Offset, Color, Directional, BaseRSIPath, list);
-        }
-        private struct Layer
-        {
-            public string Shader;
-            public string TexturePath;
-            public string RsiPath;
-            public string State;
-            public Vector2 Scale;
-            public Angle Rotation;
-            public bool Visible;
-            public Color Color;
-
-            public static Layer New()
-            {
-                return new Layer
-                {
-                    Scale = Vector2.One,
-                    Visible = true,
-                    Color = Color.White,
-                };
-            }
-
-            public SpriteComponentState.Layer ToStateLayer()
-            {
-                return new SpriteComponentState.Layer(Shader, TexturePath, RsiPath, State, Scale, Rotation, Visible, Color);
-            }
+            return new SpriteComponentState(Visible, DrawDepth, Scale, Rotation, Offset, Color, Directional,
+                BaseRSIPath, Layers);
         }
     }
 }

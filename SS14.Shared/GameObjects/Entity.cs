@@ -1,10 +1,13 @@
-﻿using SS14.Shared.Interfaces.GameObjects;
-using SS14.Shared.Interfaces.Network;
-using SS14.Shared.IoC;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using SS14.Shared.GameObjects.Serialization;
+using SS14.Shared.Serialization;
+using SS14.Shared.Interfaces.GameObjects;
+using SS14.Shared.Interfaces.Network;
+using SS14.Shared.IoC;
+using SS14.Shared.Interfaces.GameObjects.Components;
+using SS14.Shared.Utility;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Shared.GameObjects
 {
@@ -13,29 +16,21 @@ namespace SS14.Shared.GameObjects
     {
         #region Members
 
-        /// <summary>
-        /// Holds this entity's components. Indexed by reference type. As such the values will contain duplicates.
-        /// </summary>
-        private readonly Dictionary<Type, IComponent> _componentReferences = new Dictionary<Type, IComponent>();
-        private readonly Dictionary<uint, IComponent> _netIDs = new Dictionary<uint, IComponent>();
-        private readonly List<IComponent> _components = new List<IComponent>();
         private string _name;
-        private string _type = "entity";
-        private string _id;
-
-        /// <inheritdoc />
-        public IEntityNetworkManager EntityNetworkManager { get; private set; }
 
         /// <inheritdoc />
         public IEntityManager EntityManager { get; private set; }
 
         /// <inheritdoc />
+        [ViewVariables]
         public EntityUid Uid { get; private set; }
 
         /// <inheritdoc />
-        public EntityPrototype Prototype { get; set; }
+        [ViewVariables]
+        public EntityPrototype Prototype { get; internal set; }
 
         /// <inheritdoc />
+        [ViewVariables]
         public string Description
         {
             get
@@ -52,9 +47,12 @@ namespace SS14.Shared.GameObjects
         /// </summary>
         private string _description;
 
+        /// <inheritdoc />
+        [ViewVariables]
         public uint LastModifiedTick { get; private set; }
 
         /// <inheritdoc />
+        [ViewVariables(VVAccess.ReadWrite)]
         public string Name
         {
             get => _name;
@@ -66,10 +64,17 @@ namespace SS14.Shared.GameObjects
         }
 
         /// <inheritdoc />
+        [ViewVariables]
         public bool Initialized { get; private set; }
 
         /// <inheritdoc />
+        [ViewVariables]
         public bool Deleted { get; private set; }
+
+        private ITransformComponent _transform;
+        /// <inheritdoc />
+        [ViewVariables]
+        public ITransformComponent Transform => _transform ?? (_transform = GetComponent<ITransformComponent>());
 
         #endregion Members
 
@@ -84,14 +89,14 @@ namespace SS14.Shared.GameObjects
         /// <exception cref="InvalidOperationException">
         ///     Thrown if the method is called and the entity already has initialized managers.
         /// </exception>
-        public void SetManagers(IEntityManager entityManager, IEntityNetworkManager networkManager)
+        public void SetManagers(IEntityManager entityManager)
         {
             if (EntityManager != null)
             {
                 throw new InvalidOperationException("Entity already has initialized managers.");
             }
+
             EntityManager = entityManager;
-            EntityNetworkManager = networkManager;
         }
 
         /// <inheritdoc />
@@ -123,11 +128,13 @@ namespace SS14.Shared.GameObjects
         /// </summary>
         public void InitializeComponents()
         {
-            // Initialize() can modify _components.
-            // TODO: This code can only handle additions to the list. Is there a better way?
-            for (int i = 0; i < _components.Count; i++)
+            // Initialize() can modify the collection of components.
+            var components = EntityManager.ComponentManager.GetComponentInstances(Uid).ToList();
+            for (int i = 0; i < components.Count; i++)
             {
-                _components[i].Initialize();
+                var comp = (Component)components[i];
+                if (comp != null && !comp.Initialized)
+                    comp.Initialize();
             }
         }
 
@@ -138,40 +145,12 @@ namespace SS14.Shared.GameObjects
         {
             // Startup() can modify _components
             // TODO: This code can only handle additions to the list. Is there a better way?
-            for (int i = 0; i < _components.Count; i++)
+            var components = EntityManager.ComponentManager.GetComponentInstances(Uid).ToList();
+            for (int i = 0; i < components.Count; i++)
             {
-                _components[i].Startup();
-            }
-        }
-
-        /// <summary>
-        ///     Called after the entity is constructed by its prototype to load serializable fields
-        ///     from the prototype's <c>data</c> field. Called any time during the Entities life to serialize
-        ///     its fields.
-        /// </summary>
-        /// <param name="serializer">The serialization object that contains the <c>data</c> field.</param>
-        public void ExposeData(EntitySerializer serializer)
-        {
-            _id = Prototype.ID;
-            _type = Prototype.TypeString;
-
-            serializer.EntityHeader();
-
-            serializer.DataField(ref _type, "type", "entity", true);
-            serializer.DataField(ref _id, "id", String.Empty, true);
-            serializer.DataField(ref _name, "name", String.Empty, true);
-
-            serializer.CompHeader();
-
-            foreach (var component in _components)
-            {
-                string type = component.Name;
-
-                serializer.CompStart(type);
-
-                serializer.DataField(ref type, "type", component.Name, true);
-
-                component.ExposeData(serializer);
+                var comp = (Component)components[i];
+                if (comp != null && comp.Initialized && !comp.Running && !comp.Deleted)
+                    comp.Startup();
             }
         }
 
@@ -190,10 +169,11 @@ namespace SS14.Shared.GameObjects
         /// <inheritdoc />
         public void SendMessage(IComponent owner, ComponentMessage message)
         {
-            foreach (var component in _components)
+            var components = EntityManager.ComponentManager.GetComponentInstances(Uid);
+            foreach (var component in components)
             {
                 if (owner != component)
-                    component.HandleMessage(message, component: owner);
+                    component.HandleMessage(message, null, owner);
             }
         }
 
@@ -202,11 +182,11 @@ namespace SS14.Shared.GameObjects
         {
             if (message.Directed)
             {
-                EntityNetworkManager.SendDirectedComponentNetworkMessage(channel, this, owner, message);
+                EntityManager.EntityNetManager.SendDirectedComponentNetworkMessage(channel, this, owner, message);
             }
             else
             {
-                EntityNetworkManager.SendComponentNetworkMessage(this, owner, message);
+                EntityManager.EntityNetManager.SendComponentNetworkMessage(this, owner, message);
             }
         }
 
@@ -227,14 +207,14 @@ namespace SS14.Shared.GameObjects
 
                         if (compMsg.Directed)
                         {
-                            if (_netIDs.TryGetValue(message.Message.NetId, out var component))
-                                component.HandleMessage(compMsg, netChannel: compChannel);
+                            if (EntityManager.ComponentManager.TryGetComponent(Uid, message.Message.NetId, out var component))
+                                component.HandleMessage(compMsg, compChannel);
                         }
                         else
                         {
-                            foreach (var component in _components)
+                            foreach (var component in EntityManager.ComponentManager.GetComponentInstances(Uid))
                             {
-                                component.HandleMessage(compMsg, netChannel: compChannel);
+                                component.HandleMessage(compMsg, compChannel);
                             }
                         }
                     }
@@ -291,199 +271,93 @@ namespace SS14.Shared.GameObjects
         /// <param name="component">The component to add.</param>
         public void AddComponent(Component component)
         {
-            AddComponent(component, false);
+            EntityManager.ComponentManager.AddComponent(this, component);
         }
 
         /// <inheritdoc />
         public T AddComponent<T>()
             where T : Component, new()
         {
-            var factory = IoCManager.Resolve<IComponentFactory>();
-            var newComponent = (Component)factory.GetComponent<T>();
-
-            newComponent.Owner = this;
-            AddComponent(newComponent);
-
-            return (T)newComponent;
+            return EntityManager.ComponentManager.AddComponent<T>(this);
         }
 
         private void AddComponent(Component component, bool overwrite)
         {
-            if (component.Owner != null && component.Owner != this)
-            {
-                throw new ArgumentException("Component already has an owner");
-            }
-            var reg = IoCManager.Resolve<IComponentFactory>().GetRegistration(component);
-
-            // Check that there are no overlapping references.
-            foreach (var type in reg.References)
-            {
-                if (!_componentReferences.TryGetValue(type, out var duplicate))
-                    continue;
-
-                if (!overwrite)
-                    throw new InvalidOperationException($"Component reference type {type} already occupied by {duplicate}");
-
-                RemoveComponent(type);
-            }
-
-            _components.Add(component);
-            foreach (var type in reg.References)
-            {
-                _componentReferences[type] = component;
-            }
-
-            if (component.NetID != null)
-            {
-                _netIDs[component.NetID.Value] = component;
-                component.Dirty();
-            }
-
-            // Register the component with the ComponentManager.
-            var manager = IoCManager.Resolve<IComponentManager>();
-            manager.AddComponent(component);
-
-            component.OnAdd();
-
-            if (Initialized)
-            {
-                // If the component gets added AFTER primary entity initialization (prototype),
-                // we initialize it here!
-                component.Initialize();
-            }
-        }
-
-        /// <summary>
-        ///     Public method to remove a component from an entity.
-        ///     Calls the onRemove method of the component, which handles removing it
-        ///     from the component manager and shutting down the component.
-        /// </summary>
-        /// <param name="component">The component to remove.</param>
-        public void RemoveComponent(IComponent component)
-        {
-            if (component.Owner != this)
-            {
-                throw new InvalidOperationException("Component is not owned by us");
-            }
-
-            component.Shutdown();
-
-            InternalRemoveComponent(component);
-        }
-
-        private void RemoveComponent(Type type)
-        {
-            RemoveComponent(GetComponent(type));
+            EntityManager.ComponentManager.AddComponent(this, component, overwrite);
         }
 
         /// <inheritdoc />
         public void RemoveComponent<T>()
         {
-            RemoveComponent((IComponent)GetComponent<T>());
+            EntityManager.ComponentManager.RemoveComponent<T>(Uid);
         }
 
-        private void InternalRemoveComponent(IComponent component)
+        private void RemoveComponent(IComponent component)
         {
-            if (component.Owner != this)
-                throw new InvalidOperationException("Component is not owned by us");
-
-            var reg = IoCManager.Resolve<IComponentFactory>().GetRegistration(component);
-
-            EntityManager.RemoveSubscribedEvents(component);
-            component.OnRemove();
-            _components.Remove(component);
-
-            foreach (var t in reg.References)
-            {
-                _componentReferences.Remove(t);
-            }
-
-            if (component.NetID != null)
-            {
-                _netIDs.Remove(component.NetID.Value);
-                Dirty();
-            }
+            EntityManager.ComponentManager.RemoveComponent(Uid, component);
         }
 
         /// <inheritdoc />
         public bool HasComponent<T>()
         {
-            return HasComponent(typeof(T));
+            return EntityManager.ComponentManager.HasComponent(Uid, typeof(T));
         }
 
         /// <inheritdoc />
         public bool HasComponent(Type type)
         {
-            return _componentReferences.ContainsKey(type);
+            return EntityManager.ComponentManager.HasComponent(Uid, type);
         }
 
         private bool HasComponent(uint netId)
         {
-            return _netIDs.ContainsKey(netId);
+            return EntityManager.ComponentManager.HasComponent(Uid, netId);
         }
 
         /// <inheritdoc />
         public T GetComponent<T>()
         {
-            return (T)_componentReferences[typeof(T)];
+            return (T)EntityManager.ComponentManager.GetComponent(Uid, typeof(T));
         }
 
         /// <inheritdoc />
         public IComponent GetComponent(Type type)
         {
-            return _componentReferences[type];
+            return EntityManager.ComponentManager.GetComponent(Uid, type);
         }
 
         /// <inheritdoc />
         public IComponent GetComponent(uint netID)
         {
-            return _netIDs[netID];
+            return EntityManager.ComponentManager.GetComponent(Uid, netID);
         }
 
         /// <inheritdoc />
         public bool TryGetComponent<T>(out T component)
             where T : class
         {
-            if (!_componentReferences.ContainsKey(typeof(T)))
-            {
-                component = null;
-                return false;
-            }
-            component = (T)_componentReferences[typeof(T)];
-            return true;
+            return EntityManager.ComponentManager.TryGetComponent(Uid, out component);
         }
 
         /// <inheritdoc />
         public bool TryGetComponent(Type type, out IComponent component)
         {
-            return _componentReferences.TryGetValue(type, out component);
+            return EntityManager.ComponentManager.TryGetComponent(Uid, type, out component);
         }
 
         /// <inheritdoc />
         public bool TryGetComponent(uint netID, out IComponent component)
         {
-            return _netIDs.TryGetValue(netID, out component);
+            return EntityManager.ComponentManager.TryGetComponent(Uid, netID, out component);
         }
 
         /// <inheritdoc />
         public void Shutdown()
         {
-            // first we shut down every component.
-            foreach (var component in _components)
-            {
-                component.Shutdown();
-            }
-
-            // then we remove every component.
-            foreach (var component in _components.ToList())
-            {
-                InternalRemoveComponent(component);
-            }
+            EntityManager.ComponentManager.RemoveComponents(Uid);
 
             // Entity manager culls us because we're set to Deleted.
             Deleted = true;
-            _netIDs.Clear();
-            _componentReferences.Clear();
         }
 
         /// <inheritdoc />
@@ -495,7 +369,13 @@ namespace SS14.Shared.GameObjects
         /// <inheritdoc />
         public IEnumerable<IComponent> GetAllComponents()
         {
-            return _components.Where(component => !component.Deleted);
+            return EntityManager.ComponentManager.GetComponents(Uid).Where(comp => !comp.Deleted);
+        }
+
+        /// <inheritdoc />
+        public IEnumerable<IComponent> GetComponentInstances()
+        {
+            return EntityManager.ComponentManager.GetComponentInstances(Uid).Where(comp => !comp.Deleted);
         }
 
         /// <inheritdoc />
@@ -508,8 +388,7 @@ namespace SS14.Shared.GameObjects
 
         #region GameState
 
-        /// <inheritdoc />
-        public void HandleEntityState(EntityState state)
+        internal void HandleEntityState(EntityState state)
         {
             Name = state.StateData.Name;
             var synchedComponentTypes = state.StateData.SynchedComponentTypes;
@@ -519,7 +398,11 @@ namespace SS14.Shared.GameObjects
                     RemoveComponent(GetComponent(t.Item1));
 
                 if (!HasComponent(t.Item1))
-                    AddComponent((Component)IoCManager.Resolve<IComponentFactory>().GetComponent(t.Item2), true);
+                {
+                    var newComp = (Component)IoCManager.Resolve<IComponentFactory>().GetComponent(t.Item2);
+                    newComp.Owner = this;
+                    AddComponent(newComp, true);
+                }
             }
 
             foreach (var compState in state.ComponentStates)
@@ -540,9 +423,9 @@ namespace SS14.Shared.GameObjects
         public EntityState GetEntityState(uint fromTick)
         {
             var compStates = GetComponentStates(fromTick);
-            var synchedComponentTypes = _netIDs
-                .Where(t => t.Value.NetworkSynchronizeExistence)
-                .Select(t => new Tuple<uint, string>(t.Key, t.Value.Name))
+
+            var synchedComponentTypes = EntityManager.ComponentManager.GetNetComponents(Uid)
+                .Select(t => new Tuple<uint, string>(t.NetID.Value, t.Name))
                 .ToList();
 
             var es = new EntityState(
@@ -561,7 +444,7 @@ namespace SS14.Shared.GameObjects
         private List<ComponentState> GetComponentStates(uint fromTick)
         {
             return GetAllComponents()
-                .Where(c => c.NetID != null && c.LastModifiedTick >= fromTick)
+                .Where(c => c.NetID != null && c.NetSyncEnabled && c.LastModifiedTick >= fromTick)
                 .Select(component => component.GetComponentState())
                 .ToList();
         }
@@ -575,7 +458,7 @@ namespace SS14.Shared.GameObjects
 
         public override string ToString()
         {
-            return $"{Name} ({Uid}, {Prototype.Name})";
+            return $"{Name} ({Uid}, {Prototype.ID})";
         }
     }
 }

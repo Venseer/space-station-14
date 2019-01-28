@@ -1,6 +1,5 @@
 ﻿using SS14.Client.Interfaces.Graphics.ClientEye;
 using SS14.Client.Interfaces.Input;
-using SS14.Client.Interfaces.Player;
 using SS14.Client.UserInterface.Controls;
 using SS14.Shared.Interfaces.GameObjects.Components;
 using SS14.Shared.IoC;
@@ -11,14 +10,14 @@ using SS14.Client.Interfaces.ResourceManagement;
 using SS14.Client.ResourceManagement;
 using SS14.Client.Graphics.Drawing;
 using SS14.Client.Interfaces.State;
+using SS14.Client.Player;
 using SS14.Client.State.States;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Utility;
 
 namespace SS14.Client.UserInterface.CustomControls
 {
-    [Reflect(false)]
-    class DebugCoordsPanel : Panel
+    internal class DebugCoordsPanel : Panel
     {
         [Dependency]
         readonly IPlayerManager playerManager;
@@ -40,17 +39,20 @@ namespace SS14.Client.UserInterface.CustomControls
 
             SizeFlagsHorizontal = SizeFlags.None;
 
-            contents = new Label();
+            contents = new Label
+            {
+                FontOverride = resourceCache.GetResource<FontResource>(new ResourcePath("/Fonts/CALIBRI.TTF"))
+                    .MakeDefault(),
+                FontColorShadowOverride = Color.Black,
+                MarginTop = 5,
+                MarginLeft = 5
+            };
             AddChild(contents);
-            contents.AddFontOverride("font", resourceCache.GetResource<FontResource>(new ResourcePath("/Fonts/CALIBRI.TTF")).MakeDefault());
-            contents.AddColorOverride("font_color_shadow", Color.Black);
-            contents.MarginLeft = contents.MarginTop = 5;
 
-            var bg = new StyleBoxFlat
+            PanelOverride = new StyleBoxFlat
             {
                 BackgroundColor = new Color(67, 105, 255, 138),
             };
-            AddStyleBoxOverride("panel", bg);
 
             MouseFilter = contents.MouseFilter = MouseFilterMode.Ignore;
         }
@@ -67,14 +69,15 @@ namespace SS14.Client.UserInterface.CustomControls
                 return;
             }
 
-            var entityTransform = playerManager.LocalPlayer.ControlledEntity.GetComponent<ITransformComponent>();
+            var entityTransform = playerManager.LocalPlayer.ControlledEntity.Transform;
             var playerWorldOffset = entityTransform.WorldPosition;
             var playerScreen = eyeManager.WorldToScreen(playerWorldOffset);
 
             var mouseScreenPos = inputManager.MouseScreenPosition;
             int mouseWorldMap;
             int mouseWorldGrid;
-            GridLocalCoordinates mouseWorldPos;
+            GridCoordinates mouseWorldPos;
+            ScreenCoordinates worldToScreen;
             IEntity mouseEntity = null;
             try
             {
@@ -82,6 +85,7 @@ namespace SS14.Client.UserInterface.CustomControls
                 mouseWorldMap = (int)coords.MapID;
                 mouseWorldGrid = (int)coords.GridID;
                 mouseWorldPos = coords;
+                worldToScreen = eyeManager.WorldToScreen(coords);
                 if (stateManager.CurrentState is GameScreen gameScreen)
                 {
                     mouseEntity = gameScreen.GetEntityUnderPosition(coords);
@@ -92,6 +96,7 @@ namespace SS14.Client.UserInterface.CustomControls
                 mouseWorldPos = eyeManager.ScreenToWorld(mouseScreenPos);
                 mouseWorldGrid = 0;
                 mouseWorldMap = 0;
+                worldToScreen = new ScreenCoordinates();
             }
 
             contents.Text = $@"Positioning Debug:
@@ -104,6 +109,7 @@ Character Pos:
 Mouse Pos:
     Screen: {mouseScreenPos}
     World: {mouseWorldPos}
+    W2S: {worldToScreen.Position}
     Grid: {mouseWorldGrid}
     Map: {mouseWorldMap}
     Entity: {mouseEntity}";

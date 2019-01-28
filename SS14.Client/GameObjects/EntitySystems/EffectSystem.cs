@@ -7,7 +7,7 @@ using SS14.Client.Interfaces.ResourceManagement;
 using SS14.Client.ResourceManagement;
 using SS14.Shared.GameObjects;
 using SS14.Shared.GameObjects.EntitySystemMessages;
-using SS14.Shared.GameObjects.System;
+using SS14.Shared.GameObjects.Systems;
 using SS14.Shared.Interfaces.Network;
 using SS14.Shared.Interfaces.Timing;
 using SS14.Shared.IoC;
@@ -48,6 +48,10 @@ namespace SS14.Client.GameObjects
         {
             base.Initialize();
             IoCManager.InjectDependencies(this);
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             DrawingNode = new Godot.Node2D()
             {
                 Name = "EffectSystem",
@@ -73,6 +77,10 @@ namespace SS14.Client.GameObjects
         public override void Shutdown()
         {
             base.Shutdown();
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             VS.FreeRid(ShadedCanvasItem);
             VS.FreeRid(UnshadedCanvasItem);
             UnshadedMaterial.Dispose();
@@ -103,11 +111,15 @@ namespace SS14.Client.GameObjects
         public void CreateEffect(EffectSystemMessage message)
         {
             var gametime = gameTiming.CurTime;
+
+            /*
+            // TODO: Fix this, it doesn't work. Probably because CurTime isn't synchronized with the server.
             if (gametime > message.DeathTime) //Did we already die in transit? That's pretty troubling isn't it
             {
                 Logger.Warning(string.Format("Effect using sprite {0} died in transit to the client", message.EffectSprite), message);
                 return;
             }
+            */
 
             //Create effect from creation message
             var effect = new Effect(message, resourceCache);
@@ -124,6 +136,10 @@ namespace SS14.Client.GameObjects
 
         public override void FrameUpdate(float frameTime)
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             lasttimeprocessed = IoCManager.Resolve<IGameTiming>().CurTime;
 
             for (int i = 0; i < _Effects.Count; i++)
@@ -149,10 +165,14 @@ namespace SS14.Client.GameObjects
         {
             var map = eyeManager.CurrentMap;
 
+            if (GameController.OnGodot)
+            {
+                return;
+            }
             VS.CanvasItemClear(ShadedCanvasItem);
             VS.CanvasItemClear(UnshadedCanvasItem);
-            using (var shadedhandle = new DrawingHandle(ShadedCanvasItem))
-            using (var unshadedhandle = new DrawingHandle(UnshadedCanvasItem))
+            using (var shadedHandle = new DrawingHandleScreen(ShadedCanvasItem))
+            using (var unshadedHandle = new DrawingHandleScreen(UnshadedCanvasItem))
             {
                 foreach (var effect in _Effects)
                 {
@@ -164,11 +184,11 @@ namespace SS14.Client.GameObjects
                     // NOTE TO FUTURE READERS:
                     // Yes, due to how this is implemented, unshaded is always on top of shaded.
                     // If you want to rework it to be properly defined, be my guest.
-                    var handle = effect.Shaded ? shadedhandle : unshadedhandle;
+                    var handle = effect.Shaded ? shadedHandle : unshadedHandle;
 
-                    handle.SetTransform(effect.Coordinates.ToWorld().Position * EyeManager.PIXELSPERMETER, new Angle(effect.Rotation), effect.Size);
-                    Texture effectsprite = effect.EffectSprite;
-                    handle.DrawTexture(effectsprite, -((Vector2)effectsprite.Size) / 2, ToColor(effect.Color));
+                    handle.SetTransform(effect.Coordinates.ToWorld().Position * EyeManager.PIXELSPERMETER * new Vector2(1, -1), new Angle(-effect.Rotation), effect.Size);
+                    var effectSprite = effect.EffectSprite;
+                    handle.DrawTexture(effectSprite, -((Vector2)effectSprite.Size) / 2, ToColor(effect.Color));
                 }
             }
         }
@@ -184,12 +204,12 @@ namespace SS14.Client.GameObjects
             /// <summary>
             /// Effect position relative to the emit position
             /// </summary>
-            public GridLocalCoordinates Coordinates;
+            public GridCoordinates Coordinates;
 
             /// <summary>
             /// Where the emitter was when the effect was first emitted
             /// </summary>
-            public GridLocalCoordinates EmitterCoordinates;
+            public GridCoordinates EmitterCoordinates;
 
             /// <summary>
             /// Effect's x/y velocity
@@ -321,7 +341,7 @@ namespace SS14.Client.GameObjects
 
                 //Calculate new position from our velocity as well as possible rotation/movement around emitter
                 deltaPosition += Velocity * frameTime;
-                Coordinates = new GridLocalCoordinates(Coordinates.Position + deltaPosition, Coordinates.Grid);
+                Coordinates = new GridCoordinates(Coordinates.Position + deltaPosition, Coordinates.Grid);
 
                 //Finish calculating new rotation, size, color
                 Rotation += RotationRate * frameTime;

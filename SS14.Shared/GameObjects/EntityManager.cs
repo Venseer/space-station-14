@@ -1,34 +1,41 @@
-﻿using SS14.Shared.Interfaces.GameObjects;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Interfaces.GameObjects.Components;
+using SS14.Shared.Interfaces.Network;
+using SS14.Shared.Interfaces.Timing;
 using SS14.Shared.IoC;
+using SS14.Shared.Map;
 using SS14.Shared.Maths;
 using SS14.Shared.Network.Messages;
 using SS14.Shared.Prototypes;
 using SS14.Shared.Utility;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using SS14.Shared.Interfaces.Network;
-using Vector2 = SS14.Shared.Maths.Vector2;
-using SS14.Shared.Interfaces.Timing;
 
 namespace SS14.Shared.GameObjects
 {
-    public class EntityManager : IEntityManager
+    public abstract class EntityManager : IEntityManager
     {
         #region Dependencies
+
         [Dependency]
         protected readonly IEntityNetworkManager EntityNetworkManager;
+
         [Dependency]
         protected readonly IPrototypeManager PrototypeManager;
+
         [Dependency]
         protected readonly IEntitySystemManager EntitySystemManager;
+
         [Dependency]
         protected readonly IComponentFactory ComponentFactory;
+
         [Dependency]
         private readonly INetManager _network;
+
         [Dependency]
         private readonly IComponentManager _componentManager;
+
         [Dependency]
         private readonly IGameTiming _gameTiming;
 
@@ -36,26 +43,32 @@ namespace SS14.Shared.GameObjects
 
         public uint CurrentTick => _gameTiming.CurTick;
 
+        public IComponentManager ComponentManager => _componentManager;
+        public IEntityNetworkManager EntityNetManager => EntityNetworkManager;
+
         protected readonly Dictionary<EntityUid, IEntity> Entities = new Dictionary<EntityUid, IEntity>();
+
         /// <summary>
         /// List of all entities, used for iteration.
         /// </summary>
         protected readonly List<Entity> _allEntities = new List<Entity>();
+
         protected readonly Queue<IncomingEntityMessage> MessageBuffer = new Queue<IncomingEntityMessage>();
 
-        // This MUST start > 0
-        protected int NextUid = 1;
+        protected int NextUid = (int)EntityUid.FirstUid;
 
         private readonly Dictionary<Type, List<Delegate>> _eventSubscriptions
             = new Dictionary<Type, List<Delegate>>();
+
         private readonly Dictionary<IEntityEventSubscriber, Dictionary<Type, Delegate>> _inverseEventSubscriptions
             = new Dictionary<IEntityEventSubscriber, Dictionary<Type, Delegate>>();
 
         private readonly Queue<Tuple<object, EntityEventArgs>> _eventQueue
             = new Queue<Tuple<object, EntityEventArgs>>();
 
+        protected bool EntitiesInitialized;
+
         public bool Started { get; protected set; }
-        public bool MapsInitialized { get; set; } = false;
 
         #region IEntityManager Members
 
@@ -73,11 +86,12 @@ namespace SS14.Shared.GameObjects
             FlushEntities();
             EntitySystemManager.Shutdown();
             Started = false;
-            _componentManager.Cull();
+            _componentManager.Clear();
         }
 
         public virtual void Update(float frameTime)
         {
+            ProcessMsgBuffer();
             EntitySystemManager.Update(frameTime);
             ProcessEventQueue();
             CullDeletedEntities();
@@ -99,6 +113,13 @@ namespace SS14.Shared.GameObjects
         }
 
         #region Entity Management
+
+        public abstract IEntity CreateEntity(string protoName);
+        public abstract Entity SpawnEntity(string protoName);
+        public abstract IEntity ForceSpawnEntityAt(string entityType, GridCoordinates coordinates);
+        public abstract IEntity ForceSpawnEntityAt(string entityType, Vector2 position, MapId argMap);
+        public abstract bool TrySpawnEntityAt(string entityType, Vector2 position, MapId argMap, out IEntity entity);
+        public abstract bool TrySpawnEntityAt(string entityType, GridCoordinates coordinates, out IEntity entity);
 
         /// <summary>
         /// Returns an entity by id
@@ -138,8 +159,8 @@ namespace SS14.Shared.GameObjects
         {
             foreach (var entity in GetEntities())
             {
-                var transform = entity.GetComponent<ITransformComponent>();
-                if (FloatMath.CloseTo(transform.LocalPosition.X, position.X) && FloatMath.CloseTo(transform.LocalPosition.Y, position.Y))
+                var transform = entity.Transform;
+                if (FloatMath.CloseTo(transform.GridPosition.X, position.X) && FloatMath.CloseTo(transform.GridPosition.Y, position.Y))
                 {
                     yield return entity;
                 }
@@ -182,6 +203,7 @@ namespace SS14.Shared.GameObjects
             {
                 e.Shutdown();
             }
+
             CullDeletedEntities();
         }
 
@@ -191,7 +213,14 @@ namespace SS14.Shared.GameObjects
         /// <param name="prototypeName">name of entity template to execute</param>
         /// <param name="uid">UID to give to the new entity.</param>
         /// <returns>spawned entity</returns>
-        public Entity SpawnEntity(string prototypeName, EntityUid? uid = null)
+        protected Entity InternalCreateEntity(string prototypeName, EntityUid? uid)
+        {
+            var entity = AllocEntity(prototypeName, uid);
+            FinishEntity(entity);
+            return entity;
+        }
+
+        internal Entity AllocEntity(string prototypeName, EntityUid? uid = null)
         {
             if (uid == null)
             {
@@ -204,11 +233,18 @@ namespace SS14.Shared.GameObjects
             }
 
             EntityPrototype prototype = PrototypeManager.Index<EntityPrototype>(prototypeName);
-            Entity entity = prototype.CreateEntity(uid.Value, this, EntityNetworkManager, ComponentFactory);
-            Entities[uid.Value] = entity;
-            _allEntities.Add(entity);
+            return prototype.AllocEntity(uid.Value, this, EntityNetworkManager);
+        }
 
-            return entity;
+        internal void FinishEntity(IEntity entity, IEntityFinishContext context = null)
+        {
+            entity.Prototype.FinishEntity((Entity)entity, ComponentFactory, context);
+            Entities[entity.Uid] = entity;
+            _allEntities.Add((Entity)entity);
+            if (EntitiesInitialized)
+            {
+                InitializeEntity((Entity)entity);
+            }
         }
 
         protected static void InitializeEntity(Entity entity)
@@ -233,13 +269,16 @@ namespace SS14.Shared.GameObjects
 
                 InitializeEntity(ent);
             }
+
+            EntitiesInitialized = true;
         }
 
         #endregion Entity Management
 
         #region ComponentEvents
 
-        public void SubscribeEvent<T>(Delegate eventHandler, IEntityEventSubscriber s) where T : EntityEventArgs
+        public void SubscribeEvent<T>(Delegate eventHandler, IEntityEventSubscriber s)
+            where T : EntityEventArgs
         {
             Type eventType = typeof(T);
             if (!_eventSubscriptions.ContainsKey(eventType))
@@ -250,6 +289,7 @@ namespace SS14.Shared.GameObjects
             {
                 _eventSubscriptions[eventType].Add(eventHandler);
             }
+
             if (!_inverseEventSubscriptions.ContainsKey(s))
             {
                 _inverseEventSubscriptions.Add(
@@ -257,13 +297,15 @@ namespace SS14.Shared.GameObjects
                     new Dictionary<Type, Delegate>()
                 );
             }
+
             if (!_inverseEventSubscriptions[s].ContainsKey(eventType))
             {
                 _inverseEventSubscriptions[s].Add(eventType, eventHandler);
             }
         }
 
-        public void UnsubscribeEvent<T>(IEntityEventSubscriber s) where T : EntityEventArgs
+        public void UnsubscribeEvent<T>(IEntityEventSubscriber s)
+            where T : EntityEventArgs
         {
             Type eventType = typeof(T);
 
@@ -279,6 +321,7 @@ namespace SS14.Shared.GameObjects
             {
                 _eventSubscriptions[eventType].Remove(evh);
             }
+
             if (_inverseEventSubscriptions.ContainsKey(s) && _inverseEventSubscriptions[s].ContainsKey(eventType))
             {
                 _inverseEventSubscriptions[s].Remove(eventType);
@@ -311,7 +354,7 @@ namespace SS14.Shared.GameObjects
 
         private void ProcessEventQueue()
         {
-            while (_eventQueue.Any())
+            while (_eventQueue.Count != 0)
             {
                 var current = _eventQueue.Dequeue();
                 ProcessSingleEvent(current);
@@ -339,32 +382,34 @@ namespace SS14.Shared.GameObjects
         protected void ProcessMsgBuffer()
         {
             if (!Started)
+            {
                 return;
-            if (!MessageBuffer.Any()) return;
+            }
+
+            if (MessageBuffer.Count == 0)
+            {
+                return;
+            }
+
             var misses = new List<IncomingEntityMessage>();
 
-            while (MessageBuffer.Any())
+            while (MessageBuffer.Count != 0)
             {
-                IncomingEntityMessage incomingEntity = MessageBuffer.Dequeue();
-                if (!Entities.ContainsKey(incomingEntity.Message.EntityUid))
+                var incomingEntity = MessageBuffer.Dequeue();
+                if (!Entities.TryGetValue(incomingEntity.Message.EntityUid, out var entity))
                 {
                     incomingEntity.LastProcessingAttempt = DateTime.Now;
                     if ((incomingEntity.LastProcessingAttempt - incomingEntity.ReceivedTime).TotalSeconds > incomingEntity.Expires)
                         misses.Add(incomingEntity);
                 }
                 else
-                    Entities[incomingEntity.Message.EntityUid].HandleNetworkMessage(incomingEntity);
+                {
+                    entity.HandleNetworkMessage(incomingEntity);
+                }
             }
 
-            foreach (IncomingEntityMessage miss in misses)
+            foreach (var miss in misses)
                 MessageBuffer.Enqueue(miss);
-
-            MessageBuffer.Clear(); //Should be empty at this point anyway.
-        }
-
-        protected IncomingEntityMessage ProcessNetMessage(MsgEntity msg)
-        {
-            return EntityNetworkManager.HandleEntityNetworkMessage(msg);
         }
 
         /// <summary>
@@ -372,29 +417,29 @@ namespace SS14.Shared.GameObjects
         /// and handling the parsed result.
         /// </summary>
         /// <param name="msg">Incoming raw network message</param>
-        public void HandleEntityNetworkMessage(MsgEntity msg)
+        private void HandleEntityNetworkMessage(MsgEntity msg)
         {
+            var incomingEntity = EntityNetworkManager.HandleEntityNetworkMessage(msg);
+            // bad message or handled by something else
+            if (incomingEntity == null)
+                return;
+
             if (!Started)
             {
-                var incomingEntity = ProcessNetMessage(msg);
                 if (incomingEntity.Message.Type != EntityMessageType.Error)
-                    MessageBuffer.Enqueue(incomingEntity);
-            }
-            else
-            {
-                ProcessMsgBuffer();
-                var incomingEntity = ProcessNetMessage(msg);
-
-                // bad message or handled by something else
-                if (incomingEntity == null)
-                    return;
-
-                if (!Entities.ContainsKey(incomingEntity.Message.EntityUid))
                 {
                     MessageBuffer.Enqueue(incomingEntity);
                 }
-                else
-                    Entities[incomingEntity.Message.EntityUid].HandleNetworkMessage(incomingEntity);
+                return;
+            }
+
+            if (!Entities.TryGetValue(incomingEntity.Message.EntityUid, out var entity))
+            {
+                MessageBuffer.Enqueue(incomingEntity);
+            }
+            else
+            {
+                entity.HandleNetworkMessage(incomingEntity);
             }
         }
 

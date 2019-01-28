@@ -21,7 +21,7 @@ namespace SS14.Client.Placement.Modes
 
             var nodes = new List<Vector2>();
 
-            if (pManager.CurrentPrototype.MountingPoints != null)
+            if (pManager?.CurrentPrototype.MountingPoints != null)
             {
                 nodes.AddRange(
                     pManager.CurrentPrototype.MountingPoints.Select(
@@ -38,12 +38,12 @@ namespace SS14.Client.Placement.Modes
                                    orderby (node - MouseCoords.Position).LengthSquared ascending
                                    select node).First();
 
-            MouseCoords = new GridLocalCoordinates(closestNode + new Vector2(pManager.CurrentPrototype.PlacementOffset.X,
-                                                                         pManager.CurrentPrototype.PlacementOffset.Y),
+            MouseCoords = new GridCoordinates(closestNode + new Vector2(pManager.PlacementOffset.X,
+                                                                         pManager.PlacementOffset.Y),
                                                MouseCoords.Grid);
         }
 
-        public override bool IsValidPosition(GridLocalCoordinates position)
+        public override bool IsValidPosition(GridCoordinates position)
         {
             if (pManager.CurrentPermission.IsTile)
             {

@@ -1,6 +1,7 @@
 ﻿using SS14.Client.Interfaces;
 using SS14.Client.Utility;
 using SS14.Shared.IoC;
+using SS14.Shared.Map;
 using SS14.Shared.Maths;
 
 namespace SS14.Client.Graphics.ClientEye
@@ -10,14 +11,19 @@ namespace SS14.Client.Graphics.ClientEye
     /// </summary>
     public class FixedEye : Eye
     {
-        private Vector2 position;
-        public Vector2 Position
+        private MapCoordinates position;
+
+        public override MapCoordinates Position
         {
-            get => position;
-            set
+            get => base.Position;
+            internal set
             {
-                GodotCamera.Position = value.Convert();
-                position = value;
+                if (GameController.OnGodot)
+                {
+                    GodotCamera.Position = value.Position.Convert();
+                }
+
+                base.Position = value;
             }
         }
 
@@ -25,6 +31,11 @@ namespace SS14.Client.Graphics.ClientEye
 
         public FixedEye()
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+
             sceneTree = IoCManager.Resolve<ISceneTreeHolder>();
             sceneTree.WorldRoot.AddChild(GodotCamera);
         }

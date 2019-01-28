@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using SS14.Shared.GameObjects;
-using Vector2 = SS14.Shared.Maths.Vector2;
+using SS14.Shared.Map;
+using SS14.Shared.Maths;
 
 namespace SS14.Shared.Interfaces.GameObjects
 {
@@ -13,13 +14,66 @@ namespace SS14.Shared.Interfaces.GameObjects
         void Startup();
         void Shutdown();
         void Update(float frameTime);
+
         /// <summary>
         ///     Client-specific per-render frame updating.
         /// </summary>
         void FrameUpdate(float frameTime);
-        bool MapsInitialized { get; set; }
+
+        IComponentManager ComponentManager { get; }
+        IEntityNetworkManager EntityNetManager { get; }
 
         #region Entity Management
+
+        /// <summary>
+        /// Creates an uninitialized entity.
+        /// </summary>
+        /// <param name="protoName">Prototype template to use. If this is null, the entity will only have an
+        /// uninitialized TransformComponent inside.</param>
+        /// <returns>Newly created entity.</returns>
+        IEntity CreateEntity(string protoName);
+
+        /// <summary>
+        /// Spawns an initialized entity at the default location.
+        /// </summary>
+        /// <param name="protoName"></param>
+        /// <returns></returns>
+        Entity SpawnEntity(string protoName);
+
+        /// <summary>
+        /// Spawns an entity at a specific position
+        /// </summary>
+        /// <param name="entityType"></param>
+        /// <param name="coordinates"></param>
+        /// <returns></returns>
+        IEntity ForceSpawnEntityAt(string entityType, GridCoordinates coordinates);
+
+        /// <summary>
+        /// Spawns an entity at a specific position
+        /// </summary>
+        /// <param name="entityType"></param>
+        /// <param name="position"></param>
+        /// <param name="argMap"></param>
+        /// <returns></returns>
+        IEntity ForceSpawnEntityAt(string entityType, Vector2 position, MapId argMap);
+
+        /// <summary>
+        /// Spawns an entity at a specific position
+        /// </summary>
+        /// <param name="entityType"></param>
+        /// <param name="position"></param>
+        /// <param name="argMap"></param>
+        /// <param name="entity"></param>
+        /// <returns></returns>
+        bool TrySpawnEntityAt(string entityType, Vector2 position, MapId argMap, out IEntity entity);
+
+        /// <summary>
+        /// Spawns an entity at a specific position
+        /// </summary>
+        /// <param name="entityType"></param>
+        /// <param name="coordinates"></param>
+        /// <returns></returns>
+        bool TrySpawnEntityAt(string entityType, GridCoordinates coordinates, out IEntity entity);
 
         /// <summary>
         /// Returns an entity by id
@@ -42,6 +96,8 @@ namespace SS14.Shared.Interfaces.GameObjects
         /// <param name="query">The query to test.</param>
         /// <returns>An enumerable over all matching entities.</returns>
         IEnumerable<IEntity> GetEntities(IEntityQuery query);
+
+        IEnumerable<IEntity> GetEntities();
 
         IEnumerable<IEntity> GetEntitiesAt(Vector2 position);
 
@@ -72,9 +128,11 @@ namespace SS14.Shared.Interfaces.GameObjects
 
         #region ComponentEvents
 
-        void SubscribeEvent<T>(Delegate eventHandler, IEntityEventSubscriber s) where T : EntityEventArgs;
+        void SubscribeEvent<T>(Delegate eventHandler, IEntityEventSubscriber s)
+            where T : EntityEventArgs;
 
-        void UnsubscribeEvent<T>(IEntityEventSubscriber s) where T : EntityEventArgs;
+        void UnsubscribeEvent<T>(IEntityEventSubscriber s)
+            where T : EntityEventArgs;
 
         void UnsubscribeEvent(Type eventType, Delegate evh, IEntityEventSubscriber s);
 

@@ -1,15 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using SS14.Client.Input;
 using SS14.Client.Interfaces;
 using SS14.Client.Interfaces.GameObjects.Components;
 using SS14.Client.Interfaces.Graphics.ClientEye;
 using SS14.Client.Interfaces.Input;
 using SS14.Client.Interfaces.Placement;
-using SS14.Client.Interfaces.Player;
 using SS14.Client.Interfaces.ResourceManagement;
-using SS14.Client.Interfaces.UserInterface;
 using SS14.Client.ResourceManagement;
 using SS14.Shared.Enums;
 using SS14.Shared.GameObjects;
@@ -24,21 +21,23 @@ using SS14.Shared.IoC;
 using SS14.Shared.Prototypes;
 using SS14.Shared.Maths;
 using SS14.Shared.Map;
-using SS14.Shared.Network;
 using SS14.Shared.Network.Messages;
 using SS14.Client.Utility;
 using SS14.Client.Graphics.ClientEye;
 using SS14.Client.Graphics;
 using SS14.Client.GameObjects;
-using SS14.Shared.GameObjects.Serialization;
+using SS14.Client.GameObjects.EntitySystems;
+using SS14.Client.Player;
+using SS14.Shared.Input;
 using SS14.Shared.Utility;
+using SS14.Shared.Serialization;
 
 namespace SS14.Client.Placement
 {
     public class PlacementManager : IPlacementManager, IDisposable
     {
         [Dependency]
-        public readonly ICollisionManager CollisionManager;
+        public readonly IPhysicsManager PhysicsManager;
         [Dependency]
         private readonly IClientNetManager NetworkManager;
         [Dependency]
@@ -54,15 +53,17 @@ namespace SS14.Client.Placement
         [Dependency]
         public readonly IEyeManager eyeManager;
         [Dependency]
-        public readonly ISceneTreeHolder sceneTree;
+        internal readonly ISceneTreeHolder sceneTree;
         [Dependency]
-        readonly public IInputManager inputManager;
+        private readonly IInputManager _inputManager;
         [Dependency]
-        private readonly IUserInterfaceManager _userInterfaceManager;
+        private readonly IEntitySystemManager _entitySystemManager;
+        [Dependency]
+        private readonly IEntityManager _entityManager;
         [Dependency]
         private readonly IPrototypeManager _prototypeManager;
         [Dependency]
-        private readonly ITileDefinitionManager _tileDefManager;
+        private readonly IBaseClient _baseClient;
 
         /// <summary>
         ///     How long before a pending tile change is dropped.
@@ -73,7 +74,7 @@ namespace SS14.Client.Placement
         /// Dictionary of all placement mode types
         /// </summary>
         private readonly Dictionary<string, Type> _modeDictionary = new Dictionary<string, Type>();
-        private readonly List<Tuple<GridLocalCoordinates, TimeSpan>> _pendingTileChanges = new List<Tuple<GridLocalCoordinates, TimeSpan>>();
+        private readonly List<Tuple<GridCoordinates, TimeSpan>> _pendingTileChanges = new List<Tuple<GridCoordinates, TimeSpan>>();
 
         /// <summary>
         /// Tells this system to try to handle placement of an entity during the next frame
@@ -88,12 +89,20 @@ namespace SS14.Client.Placement
         /// <summary>
         /// Holds the anchor that we can try to spawn in a line or a grid from
         /// </summary>
-        public GridLocalCoordinates StartPoint { get; set; }
+        public GridCoordinates StartPoint { get; set; }
 
         /// <summary>
         /// Whether the placement manager is currently in a mode where it accepts actions
         /// </summary>
-        public bool IsActive { get; private set; }
+        public bool IsActive
+        {
+            get => _isActive;
+            private set
+            {
+                _isActive = value;
+                SwitchEditorContext(value);
+            }
+        }
 
         /// <summary>
         /// Determines whether we are using the mode to delete an entity on click
@@ -112,6 +121,8 @@ namespace SS14.Client.Placement
 
         public PlacementInformation CurrentPermission { get; set; }
 
+        public PlacementHijack Hijack { get; private set; }
+
         private EntityPrototype _currentPrototype;
 
         /// <summary>
@@ -123,41 +134,46 @@ namespace SS14.Client.Placement
             set
             {
                 _currentPrototype = value;
-                //var name = BoundingBoxComponent.BoundingBoxName;
-                if (value != null
-                    && value.Components.ContainsKey("BoundingBox")
-                    && value.Components.ContainsKey("Collidable"))
+
+                if (value != null)
                 {
-                    var map = value.Components["BoundingBox"];
-                    var serializer = new YamlEntitySerializer(map);
-                    serializer.DataField(ref _colliderAABB, "aabb", new Box2(0f, 0f, 0f, 0f));
+                    PlacementOffset = value.PlacementOffset;
+
+                    if (value.Components.ContainsKey("BoundingBox") && value.Components.ContainsKey("Collidable"))
+                    {
+                        var map = value.Components["BoundingBox"];
+                        var serializer = YamlObjectSerializer.NewReader(map);
+                        serializer.DataField(ref _colliderAABB, "aabb", new Box2(0f, 0f, 0f, 0f));
+                        return;
+                    }
                 }
-                else
-                {
-                    _colliderAABB = new Box2(0f, 0f, 0f, 0f);
-                }
+
+                _colliderAABB = new Box2(0f, 0f, 0f, 0f);
             }
         }
+
+        public Vector2i PlacementOffset { get; set; }
+
 
         private Box2 _colliderAABB = new Box2(0f, 0f, 0f, 0f);
 
         /// <summary>
         /// The box which certain placement modes collision checks will be done against
         /// </summary>
-        public Box2 ColliderAABB => _colliderAABB;
+        public Box2 ColliderAABB
+        {
+            get => _colliderAABB;
+            set => _colliderAABB = value;
+        }
 
         /// <summary>
         /// The directional to spawn the entity in
         /// </summary>
         public Direction Direction { get; set; } = Direction.South;
 
-        public Godot.Node2D drawNode { get; set; }
+        public Godot.Node2D DrawNode { get; set; }
         private GodotGlue.GodotSignalSubscriber0 drawNodeDrawSubscriber;
-
-        public PlacementManager()
-        {
-            Clear();
-        }
+        private bool _isActive;
 
         public void Initialize()
         {
@@ -171,29 +187,136 @@ namespace SS14.Client.Placement
 
             _mapMan.TileChanged += HandleTileChanged;
 
-            var UnshadedMaterial = new Godot.CanvasItemMaterial()
+            if (GameController.OnGodot)
             {
-                LightMode = Godot.CanvasItemMaterial.LightModeEnum.Unshaded
-            };
+                var unshadedMaterial = new Godot.CanvasItemMaterial()
+                {
+                    LightMode = Godot.CanvasItemMaterial.LightModeEnum.Unshaded
+                };
 
-            drawNode = new Godot.Node2D()
+                DrawNode = new Godot.Node2D()
+                {
+                    Name = "Placement Manager Sprite",
+                    ZIndex = 100,
+                    Material = unshadedMaterial
+                };
+                sceneTree.WorldRoot.AddChild(DrawNode);
+                drawNodeDrawSubscriber = new GodotGlue.GodotSignalSubscriber0();
+                drawNodeDrawSubscriber.Connect(DrawNode, "draw");
+                drawNodeDrawSubscriber.Signal += Render;
+            }
+
+            // a bit ugly, oh well
+            _baseClient.PlayerJoinedServer += (sender, args) => SetupInput(_entitySystemManager);
+            _baseClient.PlayerLeaveServer += (sender, args) => TearDownInput(_entitySystemManager);
+        }
+
+        private void SetupInput(IEntitySystemManager entSysMan)
+        {
+            var inputSys = entSysMan.GetEntitySystem<InputSystem>();
+
+            inputSys.BindMap.BindFunction(EngineKeyFunctions.EditorLinePlace, InputCmdHandler.FromDelegate(
+                session =>
+                {
+                    if (IsActive && !Eraser) ActivateLineMode();
+                }));
+            inputSys.BindMap.BindFunction(EngineKeyFunctions.EditorGridPlace, InputCmdHandler.FromDelegate(
+                session =>
+                {
+                    if (IsActive && !Eraser) ActivateGridMode();
+                }));
+
+            inputSys.BindMap.BindFunction(EngineKeyFunctions.EditorPlaceObject, new PointerStateInputCmdHandler(
+                (session, coords, uid) =>
+                {
+                    if (!IsActive)
+                        return;
+
+                    if (Eraser)
+                    {
+                        HandleDeletion(_entityManager.GetEntity(uid));
+                    }
+                    else
+                    {
+                        _placenextframe = true;
+                    }
+                },
+                (session, coords, uid) =>
+                {
+                    if (!IsActive || Eraser || !_placenextframe)
+                        return;
+
+                    //Places objects for non-tile entities
+                    if (!CurrentPermission.IsTile)
+                        HandlePlacement();
+
+                    _placenextframe = false;
+                }));
+            inputSys.BindMap.BindFunction(EngineKeyFunctions.EditorRotateObject, InputCmdHandler.FromDelegate(
+                session =>
+                {
+                    if (IsActive && !Eraser) Rotate();
+                }));
+            inputSys.BindMap.BindFunction(EngineKeyFunctions.EditorCancelPlace, InputCmdHandler.FromDelegate(
+                session =>
+                {
+                    if (!IsActive || Eraser)
+                        return;
+                    if (DeactivateSpecialPlacement())
+                        return;
+                    Clear();
+                }));
+
+            var localPlayer = PlayerManager.LocalPlayer;
+            localPlayer.EntityAttached += OnEntityAttached;
+        }
+
+        private void TearDownInput(IEntitySystemManager entSysMan)
+        {
+            if (entSysMan.TryGetEntitySystem(out InputSystem inputSys))
             {
-                Name = "Placement Manager Sprite",
-                ZIndex = 100,
-                Material = UnshadedMaterial
-            };
-            sceneTree.WorldRoot.AddChild(drawNode);
-            drawNodeDrawSubscriber = new GodotGlue.GodotSignalSubscriber0();
-            drawNodeDrawSubscriber.Connect(drawNode, "draw");
-            drawNodeDrawSubscriber.Signal += Render;
+                inputSys.BindMap.UnbindFunction(EngineKeyFunctions.EditorLinePlace);
+                inputSys.BindMap.UnbindFunction(EngineKeyFunctions.EditorGridPlace);
+                inputSys.BindMap.UnbindFunction(EngineKeyFunctions.EditorPlaceObject);
+                inputSys.BindMap.UnbindFunction(EngineKeyFunctions.EditorRotateObject);
+                inputSys.BindMap.UnbindFunction(EngineKeyFunctions.EditorCancelPlace);
+            }
+
+            if (PlayerManager.LocalPlayer != null)
+            {
+                PlayerManager.LocalPlayer.EntityAttached -= OnEntityAttached;
+            }
+        }
+
+        private void OnEntityAttached(object o, EventArgs eventArgs)
+        {
+            // player attached to a new entity, basically disable the editor
+            Clear();
+        }
+
+        private void SwitchEditorContext(bool enabled)
+        {
+            if (enabled)
+            {
+                _inputManager.Contexts.SetActiveContext("editor");
+            }
+            else
+            {
+                _entitySystemManager.GetEntitySystem<InputSystem>().SetEntityContextActive();
+            }
         }
 
         public void Dispose()
         {
-            drawNodeDrawSubscriber.Disconnect(drawNode, "draw");
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+
+            drawNodeDrawSubscriber.Disconnect(DrawNode, "draw");
             drawNodeDrawSubscriber.Dispose();
-            drawNode.QueueFree();
-            drawNode.Dispose();
+            DrawNode.QueueFree();
+            DrawNode.Dispose();
         }
 
         private void HandlePlacementMessage(MsgPlacement msg)
@@ -219,6 +342,7 @@ namespace SS14.Client.Placement
 
         public void Clear()
         {
+            Hijack = null;
             CurrentBaseSprite = null;
             CurrentPrototype = null;
             CurrentPermission = null;
@@ -228,8 +352,13 @@ namespace SS14.Client.Placement
             _placenextframe = false;
             IsActive = false;
             Eraser = false;
+            PlacementOffset = Vector2i.Zero;
             // Make it draw again to remove the drawn things.
-            drawNode?.Update();
+
+            if (GameController.OnGodot)
+            {
+                DrawNode?.Update();
+            }
         }
 
         public void Rotate()
@@ -250,42 +379,42 @@ namespace SS14.Client.Placement
                     break;
             }
 
-            if (CurrentMode != null)
-            {
-                CurrentMode.SetSprite();
-            }
+            CurrentMode?.SetSprite();
         }
 
         public void HandlePlacement()
         {
-            if (IsActive && !Eraser)
+            if (!IsActive || Eraser)
+                return;
+
+            switch (PlacementType)
             {
-                switch (PlacementType)
-                {
-                    case PlacementTypes.None:
-                        RequestPlacement(CurrentMode.MouseCoords);
-                        break;
-                    case PlacementTypes.Line:
-                        foreach (var coordinate in CurrentMode.LineCoordinates())
-                        {
-                            RequestPlacement(coordinate);
-                        }
-                        DeactivateSpecialPlacement();
-                        break;
-                    case PlacementTypes.Grid:
-                        foreach (var coordinate in CurrentMode.GridCoordinates())
-                        {
-                            RequestPlacement(coordinate);
-                        }
-                        DeactivateSpecialPlacement();
-                        break;
-                }
+                case PlacementTypes.None:
+                    RequestPlacement(CurrentMode.MouseCoords);
+                    break;
+                case PlacementTypes.Line:
+                    foreach (var coordinate in CurrentMode.LineCoordinates())
+                    {
+                        RequestPlacement(coordinate);
+                    }
+
+                    DeactivateSpecialPlacement();
+                    break;
+                case PlacementTypes.Grid:
+                    foreach (var coordinate in CurrentMode.GridCoordinates())
+                    {
+                        RequestPlacement(coordinate);
+                    }
+
+                    DeactivateSpecialPlacement();
+                    break;
             }
         }
 
         public void HandleDeletion(IEntity entity)
         {
             if (!IsActive || !Eraser) return;
+            if (Hijack != null && Hijack.HijackDeletion(entity)) return;
 
             var msg = NetworkManager.CreateNetMessage<MsgPlacement>();
             msg.PlaceType = PlacementManagerMessage.RequestEntRemove;
@@ -303,7 +432,23 @@ namespace SS14.Client.Placement
             else Clear();
         }
 
+        public void ToggleEraserHijacked(PlacementHijack hijack)
+        {
+            if (!Eraser && !IsActive)
+            {
+                IsActive = true;
+                Eraser = true;
+                Hijack = hijack;
+            }
+            else Clear();
+        }
+
         public void BeginPlacing(PlacementInformation info)
+        {
+            BeginHijackedPlacing(info);
+        }
+
+        public void BeginHijackedPlacing(PlacementInformation info, PlacementHijack hijack = null)
         {
             Clear();
 
@@ -315,23 +460,31 @@ namespace SS14.Client.Placement
                 return;
             }
 
-            Type modeType = _modeDictionary.First(pair => pair.Key.Equals(CurrentPermission.PlacementOption)).Value;
-            CurrentMode = (PlacementMode)Activator.CreateInstance(modeType, this);
+            var modeType = _modeDictionary.First(pair => pair.Key.Equals(CurrentPermission.PlacementOption)).Value;
+            CurrentMode = (PlacementMode) Activator.CreateInstance(modeType, this);
+
+            if (hijack != null)
+            {
+                Hijack = hijack;
+                Hijack.StartHijack(this);
+                IsActive = true;
+                return;
+            }
 
             if (info.IsTile)
-                PreparePlacementTile((Tile)info.TileType);
+                PreparePlacementTile();
             else
                 PreparePlacement(info.EntityType);
         }
 
-        public bool CurrentMousePosition(out ScreenCoordinates coordinates)
+        private bool CurrentMousePosition(out ScreenCoordinates coordinates)
         {
             // Try to get current map.
             var map = MapId.Nullspace;
             var ent = PlayerManager.LocalPlayer.ControlledEntity;
-            if (ent != null && ent.TryGetComponent<IGodotTransformComponent>(out var component))
+            if (ent != null)
             {
-                map = component.MapID;
+                map = ent.Transform.MapID;
             }
 
             if (map == MapId.Nullspace || CurrentPermission == null || CurrentMode == null)
@@ -340,132 +493,83 @@ namespace SS14.Client.Placement
                 return false;
             }
 
-            coordinates = new ScreenCoordinates(inputManager.MouseScreenPosition);
+            coordinates = new ScreenCoordinates(_inputManager.MouseScreenPosition);
             return true;
         }
 
         /// <inheritdoc />
         public void FrameUpdate(RenderFrameEventArgs e)
         {
-            if (!CurrentMousePosition(out ScreenCoordinates mouseScreen))
-            {
+            if (!CurrentMousePosition(out var mouseScreen))
                 return;
-            }
 
             CurrentMode.AlignPlacementMode(mouseScreen);
 
             // purge old unapproved tile changes
             _pendingTileChanges.RemoveAll(c => c.Item2 < _time.RealTime);
 
-            // continues tile placement but placement of entities only occurs on mouseup
+            // continues tile placement but placement of entities only occurs on mouseUp
             if (_placenextframe && CurrentPermission.IsTile)
-            {
                 HandlePlacement();
-            }
 
-            drawNode.Update();
-        }
-
-        /// <inheritdoc />
-        public bool MouseDown(MouseButtonEventArgs e)
-        {
-            if (!IsActive || Eraser)
-                return false;
-
-            switch (e.Button)
+            if (GameController.OnGodot)
             {
-                case Mouse.Button.Left:
-                    if (e.Shift)
-                        ActivateLineMode(e);
-                    else if (e.Control)
-                        ActivateGridMode(e);
-                    else
-                        _placenextframe = true;
-                    return true;
-                case Mouse.Button.Right:
-                    if (DeactivateSpecialPlacement())
-                        return true;
-                    Clear();
-                    return true;
-                case Mouse.Button.Middle:
-                    Rotate();
-                    return true;
-            }
-
-            return false;
-        }
-
-        private void ActivateLineMode(MouseButtonEventArgs e)
-        {
-            if (CurrentMode.HasLineMode)
-            {
-                if (!CurrentMousePosition(out ScreenCoordinates mouseScreen))
-                {
-                    return;
-                }
-
-                CurrentMode.AlignPlacementMode(mouseScreen);
-                StartPoint = CurrentMode.MouseCoords;
-                PlacementType = PlacementTypes.Line;
+                DrawNode.Update();
             }
         }
 
-        private void ActivateGridMode(MouseButtonEventArgs e)
+        private void ActivateLineMode()
         {
-            if (CurrentMode.HasGridMode)
-            {
-                if (!CurrentMousePosition(out ScreenCoordinates mouseScreen))
-                {
-                    return;
-                }
+            if (!CurrentMode.HasLineMode)
+                return;
 
-                CurrentMode.AlignPlacementMode(mouseScreen);
-                StartPoint = CurrentMode.MouseCoords;
-                PlacementType = PlacementTypes.Grid;
-            }
+            if (!CurrentMousePosition(out var mouseScreen))
+                return;
+
+            CurrentMode.AlignPlacementMode(mouseScreen);
+            StartPoint = CurrentMode.MouseCoords;
+            PlacementType = PlacementTypes.Line;
+        }
+
+        private void ActivateGridMode()
+        {
+            if (!CurrentMode.HasGridMode)
+                return;
+
+            if (!CurrentMousePosition(out var mouseScreen))
+                return;
+
+            CurrentMode.AlignPlacementMode(mouseScreen);
+            StartPoint = CurrentMode.MouseCoords;
+            PlacementType = PlacementTypes.Grid;
         }
 
         private bool DeactivateSpecialPlacement()
         {
-            if (PlacementType != PlacementTypes.None)
-            {
-                PlacementType = PlacementTypes.None;
-                return true;
-            }
-            return false;
-        }
-
-        public bool MouseUp(MouseButtonEventArgs e)
-        {
-            if (!IsActive || Eraser)
+            if (PlacementType == PlacementTypes.None)
                 return false;
 
-            if (!_placenextframe)
-            {
-                return false;
-            }
-            //Places objects for nontile entities
-            else if (!CurrentPermission.IsTile)
-            {
-                HandlePlacement();
-            }
-
-            _placenextframe = false;
+            PlacementType = PlacementTypes.None;
             return true;
         }
 
         public void Render()
         {
-            if (CurrentMode != null && IsActive)
-            {
-                CurrentMode.Render();
+            if (CurrentMode == null || !IsActive)
+                return;
 
-                if (CurrentPermission != null && CurrentPermission.Range > 0 && CurrentMode.RangeRequired)
-                {
-                    var pos = PlayerManager.LocalPlayer.ControlledEntity.GetComponent<ITransformComponent>().WorldPosition;
-                    const int ppm = EyeManager.PIXELSPERMETER;
-                    drawNode.DrawCircle(pos.Convert() * ppm, CurrentPermission.Range * ppm, new Godot.Color(1, 1, 1, 0.25f));
-                }
+            CurrentMode.Render();
+
+            if (CurrentPermission == null || CurrentPermission.Range <= 0 || !CurrentMode.RangeRequired)
+                return;
+
+            var pos = PlayerManager.LocalPlayer.ControlledEntity.Transform.WorldPosition;
+            const int ppm = EyeManager.PIXELSPERMETER;
+
+            if (GameController.OnGodot)
+            {
+                DrawNode.DrawCircle(pos.Convert() * new Godot.Vector2(1, -1) * ppm, CurrentPermission.Range * ppm,
+                    new Godot.Color(1, 1, 1, 0.25f));
             }
         }
 
@@ -493,20 +597,20 @@ namespace SS14.Client.Placement
             IsActive = true;
         }
 
-        private void PreparePlacementTile(Tile tileType)
+        private void PreparePlacementTile()
         {
-            var tileDefs = _tileDefManager;
-
-            CurrentBaseSprite = ResourceCache.GetResource<TextureResource>(new ResourcePath("/Textures/UserInterface/tilebuildoverlay.png")).Texture;
+            CurrentBaseSprite = ResourceCache
+                .GetResource<TextureResource>(new ResourcePath("/Textures/UserInterface/tilebuildoverlay.png")).Texture;
 
             IsActive = true;
         }
 
-        private void RequestPlacement(GridLocalCoordinates coordinates)
+        private void RequestPlacement(GridCoordinates coordinates)
         {
             if (coordinates.MapID == MapId.Nullspace) return;
             if (CurrentPermission == null) return;
             if (!CurrentMode.IsValidPosition(coordinates)) return;
+            if (Hijack != null && Hijack.HijackPlacementRequest(coordinates)) return;
 
             if (CurrentPermission.IsTile)
             {
@@ -525,10 +629,10 @@ namespace SS14.Client.Placement
                         return;
                 }
 
-                var tuple = new Tuple<GridLocalCoordinates, TimeSpan>(localPos, _time.RealTime + _pendingTileTimeout);
+                var tuple = new Tuple<GridCoordinates, TimeSpan>(localPos, _time.RealTime + _pendingTileTimeout);
                 _pendingTileChanges.Add(tuple);
             }
-;
+
             var message = NetworkManager.CreateNetMessage<MsgPlacement>();
             message.PlaceType = PlacementManagerMessage.RequestPlacement;
 

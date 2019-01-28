@@ -6,21 +6,18 @@ using SS14.Shared.Interfaces.Configuration;
 using SS14.Shared.IoC;
 using SS14.Shared.Maths;
 using SS14.Shared.Reflection;
+using SS14.Shared.Utility;
 
 namespace SS14.Client.UserInterface.CustomControls
 {
-    [Reflect(false)]
-    class OptionsMenu : SS14Window
+    internal class OptionsMenu : SS14Window
     {
         Button ApplyButton;
         Button VSyncCheckBox;
         Button FullscreenCheckBox;
         private IConfigurationManager configManager;
 
-        protected override Godot.Control SpawnSceneControl()
-        {
-            return LoadScene("res://Scenes/OptionsMenu/OptionsMenu.tscn");
-        }
+        protected override ResourcePath ScenePath => new ResourcePath("/Scenes/OptionsMenu/OptionsMenu.tscn");
 
         protected override void Initialize()
         {
@@ -51,7 +48,7 @@ namespace SS14.Client.UserInterface.CustomControls
             configManager.SetCVar("display.windowmode", (int)(FullscreenCheckBox.Pressed ? WindowMode.Fullscreen : WindowMode.Windowed));
             configManager.SaveToFile();
             UpdateApplyButton();
-            IoCManager.Resolve<IDisplayManager>().ReadConfig();
+            IoCManager.Resolve<IDisplayManager>().ReloadConfig();
         }
 
         private void OnCheckBoxToggled(BaseButton.ButtonToggledEventArgs args)

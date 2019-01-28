@@ -3,6 +3,7 @@ using SS14.Shared.GameObjects;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Log;
 using SS14.Shared.Maths;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Client.GameObjects
 {
@@ -25,21 +26,23 @@ namespace SS14.Client.GameObjects
         /// <summary>
         ///     Current mass of the entity.
         /// </summary>
+        [ViewVariables]
         public float Mass { get; private set; }
 
         /// <summary>
         ///     Current velocity of the entity.
         /// </summary>
+        [ViewVariables]
         public Vector2 Velocity { get; private set; }
 
         /// <inheritdoc />
-        public override void OnAdd()
+        public override void Initialize()
         {
             // This component requires that the entity has an AABB.
             if (!Owner.HasComponent<BoundingBoxComponent>())
                 Logger.Error($"[ECS] {Owner.Prototype.Name} - {nameof(PhysicsComponent)} requires {nameof(BoundingBoxComponent)}. ");
 
-            base.OnAdd();
+            base.Initialize();
         }
 
         /// <inheritdoc />

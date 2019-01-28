@@ -1,12 +1,21 @@
-namespace SS14.Client.UserInterface.Controls
+﻿namespace SS14.Client.UserInterface.Controls
 {
-    public class HBoxContainer : Control
+    [ControlWrap(typeof(Godot.HBoxContainer))]
+    public class HBoxContainer : BoxContainer
     {
-        public HBoxContainer() : base() { }
-        public HBoxContainer(string name) : base(name) { }
-        public HBoxContainer(Godot.HBoxContainer sceneControl) : base(sceneControl) { }
+        public HBoxContainer() : base()
+        {
+        }
 
-        protected override Godot.Control SpawnSceneControl()
+        public HBoxContainer(string name) : base(name)
+        {
+        }
+
+        internal HBoxContainer(Godot.HBoxContainer sceneControl) : base(sceneControl)
+        {
+        }
+
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.HBoxContainer();
         }

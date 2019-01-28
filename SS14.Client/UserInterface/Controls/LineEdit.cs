@@ -3,77 +3,131 @@ using SS14.Client.GodotGlue;
 
 namespace SS14.Client.UserInterface.Controls
 {
+    [ControlWrap(typeof(Godot.LineEdit))]
     public class LineEdit : Control
     {
         public LineEdit() : base()
         {
         }
+
         public LineEdit(string name) : base(name)
         {
         }
-        public LineEdit(Godot.LineEdit control) : base(control)
+
+        internal LineEdit(Godot.LineEdit control) : base(control)
         {
         }
 
-        new private Godot.LineEdit SceneControl;
-
-        protected override Godot.Control SpawnSceneControl()
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.LineEdit();
         }
 
-        protected override void SetSceneControl(Godot.Control control)
-        {
-            base.SetSceneControl(control);
-            SceneControl = (Godot.LineEdit)control;
-        }
-
         public AlignMode TextAlign
         {
-            get => (AlignMode)SceneControl.Align;
-            set => SceneControl.Align = (Godot.LineEdit.AlignEnum)value;
+            get => GameController.OnGodot ? (AlignMode)SceneControl.Get("align") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("align", (Godot.LineEdit.AlignEnum) value);
+                }
+            }
         }
 
         public string Text
         {
-            get => SceneControl.Text;
-            set => SceneControl.Text = value;
+            get => GameController.OnGodot ? (string)SceneControl.Get("text") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("text", value);
+                }
+            }
+        }
+
+        public bool Editable
+        {
+            get => GameController.OnGodot ? (bool)SceneControl.Get("editable") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("editable", value);
+                }
+            }
+        }
+
+        public string PlaceHolder
+        {
+            get => GameController.OnGodot ? (string)SceneControl.Get("placeholder_text") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("placeholder_text", value);
+                }
+            }
         }
 
         // TODO:
         // I decided to not implement the entire LineEdit API yet,
         // since most of it won't be used yet (if at all).
         // Feel free to implement wrappers for all the other properties!
+        // Future me reporting, thanks past me.
+        // Second future me reporting, thanks again.
 
         public void AppendAtCursor(string text)
         {
-            SceneControl.AppendAtCursor(text);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("append_at_cursor", text);
+            }
         }
 
         public void Clear()
         {
-            SceneControl.Clear();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("clear");
+            }
         }
 
         public int CursorPosition
         {
-            get => SceneControl.GetCursorPosition();
-            set => SceneControl.SetCursorPosition(value);
+            get => GameController.OnGodot ? (int)SceneControl.Get("caret_position") : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    SceneControl.Set("caret_position", value);
+                }
+            }
         }
 
         public void ExecuteMenuOption(MenuOption option)
         {
-            SceneControl.MenuOption((int)option);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("menu_option", (int)option);
+            }
         }
 
         public void Select(int from = 0, int to = -1)
         {
-            SceneControl.Select(from, to);
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("select", from, to);
+            }
         }
 
         public void SelectAll()
         {
-            SceneControl.SelectAll();
+            if (GameController.OnGodot)
+            {
+                SceneControl.Call("select_all");
+            }
         }
 
         public event Action<LineEditEventArgs> OnTextChanged;
@@ -81,21 +135,21 @@ namespace SS14.Client.UserInterface.Controls
 
         public enum AlignMode
         {
-            Left = Godot.LineEdit.AlignEnum.Left,
-            Center = Godot.LineEdit.AlignEnum.Center,
-            Right = Godot.LineEdit.AlignEnum.Right,
-            Fill = Godot.LineEdit.AlignEnum.Fill,
+            Left = 0,
+            Center = 1,
+            Right = 2,
+            Fill = 3,
         }
 
         public enum MenuOption
         {
-            Cut = Godot.LineEdit.MenuItems.Cut,
-            Copy = Godot.LineEdit.MenuItems.Copy,
-            Paste = Godot.LineEdit.MenuItems.Paste,
-            Clear = Godot.LineEdit.MenuItems.Clear,
-            SelectAll = Godot.LineEdit.MenuItems.SelectAll,
-            Undo = Godot.LineEdit.MenuItems.Undo,
-            Redo = Godot.LineEdit.MenuItems.Redo,
+            Cut = 0,
+            Copy = 1,
+            Paste = 2,
+            Clear = 3,
+            SelectAll = 4,
+            Undo = 5,
+            Redo = 6,
         }
 
         public class LineEditEventArgs : EventArgs
@@ -130,23 +184,29 @@ namespace SS14.Client.UserInterface.Controls
         {
             base.DisposeSignalHooks();
 
-            __textChangedSubscriber.Disconnect(SceneControl, "text_changed");
-            __textChangedSubscriber.Dispose();
-            __textChangedSubscriber = null;
+            if (__textChangedSubscriber != null)
+            {
+                __textChangedSubscriber.Disconnect(SceneControl, "text_changed");
+                __textChangedSubscriber.Dispose();
+                __textChangedSubscriber = null;
+            }
 
-            __textEnteredSubscriber.Disconnect(SceneControl, "text_entered");
-            __textEnteredSubscriber.Dispose();
-            __textEnteredSubscriber = null;
+            if (__textEnteredSubscriber != null)
+            {
+                __textEnteredSubscriber.Disconnect(SceneControl, "text_entered");
+                __textEnteredSubscriber.Dispose();
+                __textEnteredSubscriber = null;
+            }
         }
 
         private void __textChangedHook(object text)
         {
-            OnTextChanged?.Invoke(new LineEditEventArgs(this, (string)text));
+            OnTextChanged?.Invoke(new LineEditEventArgs(this, (string) text));
         }
 
         private void __textEnteredHook(object text)
         {
-            OnTextEntered?.Invoke(new LineEditEventArgs(this, (string)text));
+            OnTextEntered?.Invoke(new LineEditEventArgs(this, (string) text));
         }
     }
 }

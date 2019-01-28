@@ -1,7 +1,7 @@
 ﻿using System;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.Serialization;
 using SS14.Shared.Interfaces.Network;
+using SS14.Shared.Serialization;
 using YamlDotNet.RepresentationModel;
 
 namespace SS14.Shared.Interfaces.GameObjects
@@ -33,9 +33,19 @@ namespace SS14.Shared.Interfaces.GameObjects
         ///     If this is false and the component gets added or removed server side, the client will not do the same.
         ///     If this is true and the server adds or removes the component, the client will do as such too.
         ///     This flag has no effect if <see cref="NetID" /> is <c>null</c>.
+        ///     This is disabled by default, usually the client builds their instance from a prototype.
         /// </summary>
         /// <seealso cref="IComponentRegistration.NetworkSynchronizeExistence" />
         bool NetworkSynchronizeExistence { get; }
+
+        /// <summary>
+        ///     Whether this component should be synchronized with clients when modified.
+        ///     If this is true, the server will synchronize all client instances with the data in this instance.
+        ///     If this is false, clients can modify the data in their instances without being overwritten by the server.
+        ///     This flag has no effect if <see cref="NetID" /> is <c>null</c>.
+        ///     This is enabled by default.
+        /// </summary>
+        bool NetSyncEnabled { get; }
 
         /// <summary>
         ///     Entity that this component is attached to.
@@ -58,8 +68,14 @@ namespace SS14.Shared.Interfaces.GameObjects
         /// </summary>
         bool Deleted { get; }
 
+        /// <summary>
+        ///     Marks the component as dirty so that the network will re-sync it with clients.
+        /// </summary>
         void Dirty();
 
+        /// <summary>
+        ///     This is the last game tick Dirty() was called.
+        /// </summary>
         uint LastModifiedTick { get; }
 
         /// <summary>
@@ -92,24 +108,15 @@ namespace SS14.Shared.Interfaces.GameObjects
         ///     This should basically be overridden by every inheriting component, as parameters will be different
         ///     across the board.
         /// </summary>
-        void ExposeData(EntitySerializer serializer);
-
-        /// <summary>
-        ///     Main method for updating the component. This is called from a big loop in ComponentManager.
-        /// </summary>
-        /// <param name="frameTime"></param>
-        [Obsolete("Components should be updated through a system.")]
-        void Update(float frameTime);
+        void ExposeData(ObjectSerializer serializer);
 
         /// <summary>
         ///     Handles an incoming component message.
         /// </summary>
-        /// <param name="owner">
-        ///     Object that raised the event.
-        ///     If the message was raised locally, this contains the object that raised it.
-        ///     If the message was raised remotely, this contains the PlayerSession that sent it.
-        /// </param>
-        /// <param name="message">Message that was sent.</param>
+        /// <param name="message">Incoming event message.</param>
+        /// <param name="netChannel">If this originates from a remote client, this is the channel it came from. If it
+        /// originates locally, this is null.</param>
+        /// <param name="component">If the message originates from a local component, this is the component that sent it.</param>
         void HandleMessage(ComponentMessage message, INetChannel netChannel = null, IComponent component = null);
 
         /// <summary>

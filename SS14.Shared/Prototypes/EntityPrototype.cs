@@ -7,10 +7,11 @@ using SS14.Shared.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using SS14.Shared.GameObjects.Serialization;
 using SS14.Shared.Log;
 using SS14.Shared.Maths;
 using YamlDotNet.RepresentationModel;
+using SS14.Shared.Serialization;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Shared.GameObjects
 {
@@ -28,36 +29,49 @@ namespace SS14.Shared.GameObjects
         /// <summary>
         /// The "in code name" of the object. Must be unique.
         /// </summary>
+        [ViewVariables]
         public string ID { get; private set; }
 
         /// <summary>
         /// The "in game name" of the object. What is displayed to most players.
         /// </summary>
+        [ViewVariables]
         public string Name { get; private set; }
 
         /// <summary>
         /// The description of the object that shows upon using examine
         /// </summary>
+        [ViewVariables]
         public string Description { get; private set; }
+
+        /// <summary>
+        ///     If true, this object should not show up in the entity spawn panel.
+        /// </summary>
+        [ViewVariables]
+        public bool Abstract { get; private set; }
 
         /// <summary>
         /// The type of entity instantiated when a new entity is created from this template.
         /// </summary>
+        [ViewVariables]
         public Type ClassType { get; private set; }
 
         /// <summary>
         /// The different mounting points on walls. (If any).
         /// </summary>
+        [ViewVariables]
         public List<int> MountingPoints { get; private set; }
 
         /// <summary>
         /// The Placement mode used for client-initiated placement. This is used for admin and editor placement. The serverside version controls what type the server assigns in normal gameplay.
         /// </summary>
+        [ViewVariables]
         public string PlacementMode { get; protected set; } = "PlaceNearby";
 
         /// <summary>
         /// The Range this entity can be placed from. This is only used serverside since the server handles normal gameplay. The client uses unlimited range since it handles things like admin spawning and editing.
         /// </summary>
+        [ViewVariables]
         public int PlacementRange { get; protected set; } = DEFAULT_RANGE;
         private const int DEFAULT_RANGE = 200;
 
@@ -70,22 +84,26 @@ namespace SS14.Shared.GameObjects
         /// <summary>
         /// Offset that is added to the position when placing. (if any). Client only.
         /// </summary>
+        [ViewVariables]
         public Vector2i PlacementOffset { get; protected set; }
         private bool _placementOverriden = false;
 
         /// <summary>
         /// True if this entity will be saved by the map loader.
         /// </summary>
+        [ViewVariables]
         public bool MapSavable { get; protected set; } = true;
 
         /// <summary>
         /// The prototype we inherit from.
         /// </summary>
+        [ViewVariables]
         public EntityPrototype Parent { get; private set; }
 
         /// <summary>
         /// A list of children inheriting from this prototype.
         /// </summary>
+        [ViewVariables]
         public List<EntityPrototype> Children { get; private set; }
         public bool IsRoot => Parent == null;
 
@@ -105,6 +123,16 @@ namespace SS14.Shared.GameObjects
         public YamlMappingNode DataNode { get; set; }
 
         private readonly HashSet<Type> ReferenceTypes = new HashSet<Type>();
+
+        string CurrentDeserializingComponent;
+        readonly Dictionary<string, Dictionary<(string, Type), object>> FieldCache = new Dictionary<string, Dictionary<(string, Type), object>>();
+        readonly Dictionary<string, object> DataCache = new Dictionary<string, object>();
+
+        public EntityPrototype()
+        {
+            // Everybody gets a transform component!
+            Components.Add("Transform", new YamlMappingNode());
+        }
 
         public void LoadFrom(YamlMappingNode mapping)
         {
@@ -179,6 +207,11 @@ namespace SS14.Shared.GameObjects
             {
                 MapSavable = node.AsBool();
             }
+
+            if (mapping.TryGetNode("abstract", out node))
+            {
+                Abstract = node.AsBool();
+            }
         }
 
         private void ReadPlacementProperties(YamlMappingNode mapping)
@@ -245,14 +278,50 @@ namespace SS14.Shared.GameObjects
                     {
                         break;
                     }
-                    foreach (EntityPrototype child in Children)
-                    {
-                        PushInheritance(this, child);
-                    }
-
+                    PushInheritanceAll();
                     break;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Iteratively pushes inheritance down to all children, children's children, etc. breadth-first.
+        /// </summary>
+        private void PushInheritanceAll()
+        {
+            if (Children == null)
+            {
+                return;
+            }
+
+            var sourceTargets = new List<(EntityPrototype, List<EntityPrototype>)> {(this, Children)};
+            var newSources = new List<EntityPrototype>();
+            while (true)
+            {
+                foreach (var (source, targetList) in sourceTargets)
+                {
+                    if (targetList == null)
+                    {
+                        continue;
+                    }
+                    foreach (var target in targetList)
+                    {
+                        PushInheritance(source, target);
+                    }
+                    newSources.AddRange(targetList);
+                }
+
+                if (newSources.Count == 0)
+                {
+                    break;
+                }
+                sourceTargets.Clear();
+                foreach (var newSource in newSources)
+                {
+                    sourceTargets.Add((newSource, newSource.Children));
+                }
+                newSources.Clear();
+            }
         }
 
         private static void PushInheritance(EntityPrototype source, EntityPrototype target)
@@ -286,7 +355,7 @@ namespace SS14.Shared.GameObjects
                     }
                     target.Components[component.Key] = new YamlMappingNode(component.Value.AsEnumerable());
                 }
-                next:;
+            next:;
             }
 
             // Copy all simple data over.
@@ -332,45 +401,68 @@ namespace SS14.Shared.GameObjects
             {
                 return;
             }
-
-            // TODO: remove recursion somehow.
-            foreach (EntityPrototype child in target.Children)
-            {
-                PushInheritance(target, child);
-            }
         }
 
-        /// <summary>
-        /// Creates an entity from this prototype.
-        /// Do not call this directly, use the server entity manager instead.
-        /// </summary>
-        /// <returns></returns>
-        public Entity CreateEntity(EntityUid uid, IEntityManager manager, IEntityNetworkManager networkManager, IComponentFactory componentFactory)
+        internal Entity AllocEntity(EntityUid uid, IEntityManager manager, IEntityNetworkManager networkManager)
         {
             var entity = (Entity)Activator.CreateInstance(ClassType ?? typeof(Entity));
 
-            entity.SetManagers(manager, networkManager);
+            entity.SetManagers(manager);
             entity.SetUid(uid);
-            entity.Name = Name;
             entity.Prototype = this;
+            entity.Name = Name;
 
-            if (DataNode != null)
+            return entity;
+        }
+
+        internal void FinishEntity(Entity entity, IComponentFactory factory, IEntityFinishContext context)
+        {
+            YamlObjectSerializer.Context defaultContext = null;
+            if (context == null)
             {
-                entity.ExposeData(new YamlEntitySerializer(DataNode));
+                defaultContext = new PrototypeSerializationContext(this);
             }
-
-            foreach (var componentData in Components)
+            foreach (var (name, data) in Components)
             {
-                var component = (Component)componentFactory.GetComponent(componentData.Key);
+                var component = (Component)factory.GetComponent(name);
 
                 component.Owner = entity;
-                component.LoadParameters(componentData.Value);
-                component.ExposeData(new YamlEntitySerializer(componentData.Value));
+                ObjectSerializer ser;
+                if (context != null)
+                {
+                    ser = context.GetComponentSerializer(name, data);
+                }
+                else
+                {
+                    CurrentDeserializingComponent = name;
+                    ser = YamlObjectSerializer.NewReader(data, defaultContext);
+                }
+                component.ExposeData(ser);
 
                 entity.AddComponent(component);
             }
 
-            return entity;
+            if (context == null)
+            {
+                return;
+            }
+
+            // This is for map loading.
+            // Components that have been ADDED NEW need to be handled too.
+            foreach (var name in context.GetExtraComponentTypes())
+            {
+                if (Components.ContainsKey(name))
+                {
+                    continue;
+                }
+
+                var component = (Component)factory.GetComponent(name);
+                component.Owner = entity;
+                var ser = context.GetComponentSerializer(name, null);
+                component.ExposeData(ser);
+
+                entity.AddComponent(component);
+            }
         }
 
         /// <summary>
@@ -415,6 +507,70 @@ namespace SS14.Shared.GameObjects
         public override string ToString()
         {
             return $"EntityPrototype({ID})";
+        }
+
+        class PrototypeSerializationContext : YamlObjectSerializer.Context
+        {
+            readonly EntityPrototype prototype;
+
+            public PrototypeSerializationContext(EntityPrototype owner)
+            {
+                prototype = owner;
+            }
+
+            public override void SetCachedField<T>(string field, T value)
+            {
+                if (StackDepth != 0)
+                {
+                    base.SetCachedField<T>(field, value);
+                    return;
+                }
+                if (!prototype.FieldCache.TryGetValue(prototype.CurrentDeserializingComponent, out var fieldList))
+                {
+                    fieldList = new Dictionary<(string, Type), object>();
+                    prototype.FieldCache[prototype.CurrentDeserializingComponent] = fieldList;
+                }
+
+                fieldList[(field, typeof(T))] = value;
+            }
+
+            public override bool TryGetCachedField<T>(string field, out T value)
+            {
+                if (StackDepth != 0)
+                {
+                    return base.TryGetCachedField<T>(field, out value);
+                }
+                if (prototype.FieldCache.TryGetValue(prototype.CurrentDeserializingComponent, out var dict))
+                {
+                    if (dict.TryGetValue((field, typeof(T)), out var theValue))
+                    {
+                        value = (T)theValue;
+                        return true;
+                    }
+                }
+
+                value = default;
+                return false;
+            }
+
+            public override void SetDataCache(string field, object value)
+            {
+                if (StackDepth != 0)
+                {
+                    base.SetDataCache(field, value);
+                    return;
+                }
+                prototype.DataCache[field] = value;
+            }
+
+            public override bool TryGetDataCache(string field, out object value)
+            {
+                if (StackDepth != 0)
+                {
+                    return base.TryGetDataCache(field, out value);
+                }
+                return prototype.DataCache.TryGetValue(field, out value);
+            }
         }
     }
 }

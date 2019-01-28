@@ -7,47 +7,52 @@ using SS14.Client.Interfaces.Input;
 using SS14.Client.Interfaces.UserInterface;
 using SS14.Client.UserInterface.Controls;
 using SS14.Shared.Input;
-using SS14.Shared.Interfaces.Network;
 using SS14.Shared.Interfaces.Reflection;
 using SS14.Shared.Interfaces.Resources;
 using SS14.Shared.IoC;
 using SS14.Shared.Log;
+using SS14.Shared.Map;
 using SS14.Shared.Maths;
-using SS14.Shared.Network.Messages;
 using SS14.Shared.Utility;
 using YamlDotNet.RepresentationModel;
 
 namespace SS14.Client.Input
 {
-    public class InputManager : IInputManager
+    internal class InputManager : IInputManager
     {
         public bool Enabled { get; set; } = true;
 
         public virtual Vector2 MouseScreenPosition => Vector2.Zero;
 
         [Dependency]
-        readonly IUserInterfaceManager userInterfaceManager;
+        private readonly IUserInterfaceManager _uiManager;
         [Dependency]
-        readonly IResourceManager _resourceMan;
+        private readonly IResourceManager _resourceMan;
         [Dependency]
-        readonly IClientNetManager _netManager;
-        [Dependency]
-        readonly IReflectionManager _reflectionManager;
+        private readonly IReflectionManager _reflectionManager;
 
-        private BoundKeyMap keyMap;
-
-        private readonly Dictionary<BoundKeyFunction, InputCommand> _commands = new Dictionary<BoundKeyFunction, InputCommand>();
+        private readonly Dictionary<BoundKeyFunction, InputCmdHandler> _commands = new Dictionary<BoundKeyFunction, InputCmdHandler>();
         private readonly List<KeyBinding> _bindings = new List<KeyBinding>();
-        private bool[] _keysPressed = new bool[256];
+        private readonly bool[] _keysPressed = new bool[256];
 
-        public event Action<BoundKeyFunction> OnKeyBindDown;
-        public event Action<BoundKeyFunction> OnKeyBindUp;
-        public event Action<BoundKeyEventArgs> OnKeyBindStateChanged;
+        /// <inheritdoc />
+        public BoundKeyMap NetworkBindMap { get; private set; }
 
+        /// <inheritdoc />
+        public IInputContextContainer Contexts { get; } = new InputContextContainer();
+
+        /// <inheritdoc />
+        public event Action<BoundKeyEventArgs> KeyBindStateChanged;
+
+        /// <inheritdoc />
         public void Initialize()
         {
-            keyMap = new BoundKeyMap(_reflectionManager);
-            keyMap.PopulateKeyFunctionsMap();
+            NetworkBindMap = new BoundKeyMap(_reflectionManager);
+            NetworkBindMap.PopulateKeyFunctionsMap();
+
+            EngineContexts.SetupContexts(Contexts);
+
+            Contexts.ContextChanged += OnContextChanged;
 
             LoadKeyFile(new ResourcePath("/keybinds.yml"));
             var path = new ResourcePath("/keybinds_content.yml");
@@ -55,10 +60,22 @@ namespace SS14.Client.Input
             {
                 LoadKeyFile(path);
             }
-
-            _netManager.RegisterNetMessage<MsgKeyFunctionStateChange>(MsgKeyFunctionStateChange.NAME);
         }
 
+        private void OnContextChanged(object sender, ContextChangedEventArgs args)
+        {
+            // keyup any commands that are not in the new contexts, because it will not exist in the new context and get filtered. Luckily
+            // the diff does not have to be symmetrical, otherwise instead of 'A \ B' we allocate all the things with '(A \ B) ∪ (B \ A)'
+            // It should be OK to artificially keyup these, because in the future the organic keyup will be blocked (either the context
+            // does not have the binding, or the double keyup check in UpBind will block it).
+            foreach (var function in args.OldContext.Except(args.NewContext))
+            {
+                var bind = _bindings.Find(binding => binding.Function == function);
+                SetBindState(bind, BoundKeyState.Up);
+            }
+        }
+
+        /// <inheritdoc />
         public void KeyDown(KeyEventArgs args)
         {
             if (!Enabled || UIBlocked() || args.Key == Keyboard.Key.Unknown)
@@ -69,11 +86,15 @@ namespace SS14.Client.Input
             var internalKey = KeyToInternal(args.Key);
             _keysPressed[internalKey] = true;
 
-            int matchedCombo = 0;
+            var matchedCombo = 0;
 
             // bindings are ordered with larger combos before single key bindings so combos have priority.
             foreach (var binding in _bindings)
             {
+                // check if our binding is even in the active context
+                if(!Contexts.ActiveContext.FunctionExistsHierarchy(binding.Function))
+                    continue;
+
                 if (PackedMatchesPressedState(binding.PackedKeyCombo))
                 {
                     // this statement *should* always be true first
@@ -92,6 +113,7 @@ namespace SS14.Client.Input
             }
         }
 
+        /// <inheritdoc />
         public void KeyUp(KeyEventArgs args)
         {
             if (args.Key == Keyboard.Key.Unknown)
@@ -101,6 +123,10 @@ namespace SS14.Client.Input
             var internalKey = KeyToInternal(args.Key);
             foreach (var binding in _bindings)
             {
+                // check if our binding is even in the active context
+                if (!Contexts.ActiveContext.FunctionExistsHierarchy(binding.Function))
+                    continue;
+
                 if (PackedContainsKey(binding.PackedKeyCombo, internalKey) && PackedMatchesPressedState(binding.PackedKeyCombo))
                 {
                     UpBind(binding);
@@ -117,10 +143,6 @@ namespace SS14.Client.Input
                 if (binding.BindingType == KeyBindingType.Toggle)
                 {
                     SetBindState(binding, BoundKeyState.Up);
-                }
-                else
-                {
-                    return;
                 }
             }
             else
@@ -142,23 +164,18 @@ namespace SS14.Client.Input
         private void SetBindState(KeyBinding binding, BoundKeyState state)
         {
             binding.State = state;
+
+            KeyBindStateChanged?.Invoke(new BoundKeyEventArgs(binding.Function, binding.State, new ScreenCoordinates(MouseScreenPosition)));
+
             var cmd = GetInputCommand(binding.Function);
-            OnKeyBindStateChanged?.Invoke(new BoundKeyEventArgs(binding.Function, binding.State));
             if (state == BoundKeyState.Up)
             {
-                OnKeyBindUp?.Invoke(binding.Function);
-                cmd?.Disabled();
+                cmd?.Disabled(null);
             }
             else
             {
-                OnKeyBindDown?.Invoke(binding.Function);
-                cmd?.Enabled();
+                cmd?.Enabled(null);
             }
-
-            var msg = _netManager.CreateNetMessage<MsgKeyFunctionStateChange>();
-            msg.KeyFunction = keyMap.KeyFunctionID(binding.Function);
-            msg.NewState = state;
-            _netManager.ClientSendMessage(msg);
         }
 
         private bool PackedMatchesPressedState(int packedKeyCombo)
@@ -195,19 +212,11 @@ namespace SS14.Client.Input
             return false;
         }
 
-        private static int PackedModifierCount(int packedCombo)
-        {
-            if ((packedCombo & 0x0000FF00) == 0x00000000) return 0;
-            if ((packedCombo & 0x00FF0000) == 0x00000000) return 1;
-            if ((packedCombo & 0xFF000000) == 0x00000000) return 2;
-            return 3;
-        }
-
         private static bool PackedIsSubPattern(int packedCombo, int subPackedCombo)
         {
             for (var i = 0; i < 32; i += 8)
             {
-                byte key = (byte)(subPackedCombo >> i);
+                var key = (byte)(subPackedCombo >> i);
                 if (!PackedContainsKey(packedCombo, key))
                 {
                     return false;
@@ -216,14 +225,9 @@ namespace SS14.Client.Input
             return true;
         }
 
-        internal static byte KeyToInternal(Keyboard.Key key)
+        private static byte KeyToInternal(Keyboard.Key key)
         {
             return (byte)key;
-        }
-
-        internal static Keyboard.Key InternalToKey(byte key)
-        {
-            return (Keyboard.Key)key;
         }
 
         private void LoadKeyFile(ResourcePath yamlFile)
@@ -242,22 +246,24 @@ namespace SS14.Client.Input
             foreach (var keyMapping in mapping.GetNode<YamlSequenceNode>("binds").Cast<YamlMappingNode>())
             {
                 var function = keyMapping.GetNode("function").AsString();
-                if (!keyMap.FunctionExists(function))
+                if (!NetworkBindMap.FunctionExists(function))
                 {
                     Logger.ErrorS("input", "Key function in {0} does not exist: '{1}'", yamlFile, function);
                     continue;
                 }
                 var key = keyMapping.GetNode("key").AsEnum<Keyboard.Key>();
+
+                var mod1 = Keyboard.Key.Unknown;
+                if (keyMapping.TryGetNode("mod1", out var mod1Name))
+                {
+                    mod1 = mod1Name.AsEnum<Keyboard.Key>();
+                }
+
                 var type = keyMapping.GetNode("type").AsEnum<KeyBindingType>();
 
-                var binding = new KeyBinding(function, type, key);
+                var binding = new KeyBinding(function, type, key, mod1);
                 RegisterBinding(binding);
             }
-        }
-
-        private void SaveKeyFile(ResourcePath yamlPath)
-        {
-            throw new NotImplementedException();
         }
 
         // Don't take input if we're focused on a LineEdit.
@@ -267,7 +273,7 @@ namespace SS14.Client.Input
         // So if we didn't do this, the DebugConsole wouldn't block movement (for example).
         private bool UIBlocked()
         {
-            return userInterfaceManager.Focused is LineEdit;
+            return _uiManager.Focused is LineEdit;
         }
 
         private void RegisterBinding(KeyBinding binding)
@@ -298,7 +304,7 @@ namespace SS14.Client.Input
         }
 
         /// <inheritdoc />
-        public InputCommand GetInputCommand(BoundKeyFunction function)
+        public InputCmdHandler GetInputCommand(BoundKeyFunction function)
         {
             if (_commands.TryGetValue(function, out var val))
             {
@@ -309,12 +315,12 @@ namespace SS14.Client.Input
         }
 
         /// <inheritdoc />
-        public void SetInputCommand(BoundKeyFunction function, InputCommand command)
+        public void SetInputCommand(BoundKeyFunction function, InputCmdHandler cmdHandler)
         {
-            _commands[function] = command;
+            _commands[function] = cmdHandler;
         }
 
-        class KeyBinding : IKeyBinding
+        private class KeyBinding : IKeyBinding
         {
             public BoundKeyState State { get; set; }
             public int PackedKeyCombo { get; }
@@ -334,7 +340,7 @@ namespace SS14.Client.Input
                 PackedKeyCombo = PackKeyCombo(baseKey, mod1, mod2, mod3);
             }
 
-            public static int PackKeyCombo(Keyboard.Key baseKey,
+            private static int PackKeyCombo(Keyboard.Key baseKey,
                                            Keyboard.Key mod1 = Keyboard.Key.Unknown,
                                            Keyboard.Key mod2 = Keyboard.Key.Unknown,
                                            Keyboard.Key mod3 = Keyboard.Key.Unknown)
@@ -344,15 +350,15 @@ namespace SS14.Client.Input
 
                 //pack key combo
                 var combo = 0x00000000;
-                combo |= InputManager.KeyToInternal(baseKey);
+                combo |= KeyToInternal(baseKey);
 
                 // Modifiers are sorted so that the higher key values are lower in the integer bytes.
                 // Unknown is zero so at the very "top".
                 // More modifiers thus takes precedent with that sort in register,
                 // and order only matters for amount of modifiers, not the modifiers themselves,
-                var int1 = InputManager.KeyToInternal(mod1);
-                var int2 = InputManager.KeyToInternal(mod2);
-                var int3 = InputManager.KeyToInternal(mod3);
+                var int1 = KeyToInternal(mod1);
+                var int2 = KeyToInternal(mod2);
+                var int3 = KeyToInternal(mod3);
 
                 // Use a simplistic bubble sort to sort the key modifiers.
                 if (int1 < int2) (int1, int2) = (int2, int1);

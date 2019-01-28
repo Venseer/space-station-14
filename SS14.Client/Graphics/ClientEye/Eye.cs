@@ -1,7 +1,9 @@
 ﻿using System;
 using SS14.Client.Interfaces.Graphics.ClientEye;
+using SS14.Client.Utility;
 using SS14.Shared.IoC;
 using SS14.Shared.Map;
+using SS14.Shared.Maths;
 
 namespace SS14.Client.Graphics.ClientEye
 {
@@ -10,6 +12,7 @@ namespace SS14.Client.Graphics.ClientEye
         protected IEyeManager eyeManager;
         public Godot.Camera2D GodotCamera { get; private set; }
         private bool disposed = false;
+
         public bool Current
         {
             get => eyeManager.CurrentEye == this;
@@ -31,16 +34,41 @@ namespace SS14.Client.Graphics.ClientEye
             }
         }
 
-        public MapId MapId { get; set; } = MapId.Nullspace;
+        private Vector2 _zoom = Vector2.One;
+        public Vector2 Zoom
+        {
+            get => _zoom;
+            set
+            {
+                _zoom = value;
+                if (GameController.OnGodot)
+                {
+                    GodotCamera.Zoom = value.Convert();
+                }
+            }
+        }
+
+        private MapCoordinates _position;
+
+        public virtual MapCoordinates Position
+        {
+            get => _position;
+            internal set => _position = value;
+        }
+
+        public MapId MapId => _position.MapId;
 
         public Eye()
         {
-            GodotCamera = new Godot.Camera2D()
-            {
-                DragMarginHEnabled = false,
-                DragMarginVEnabled = false,
-            };
             eyeManager = IoCManager.Resolve<IEyeManager>();
+            if (GameController.OnGodot)
+            {
+                GodotCamera = new Godot.Camera2D()
+                {
+                    DragMarginHEnabled = false,
+                    DragMarginVEnabled = false,
+                };
+            }
         }
 
         protected virtual void Dispose(bool disposing)
@@ -53,6 +81,10 @@ namespace SS14.Client.Graphics.ClientEye
                 eyeManager = null;
             }
 
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             GodotCamera.QueueFree();
             GodotCamera.Dispose();
             GodotCamera = null;
@@ -64,6 +96,7 @@ namespace SS14.Client.Graphics.ClientEye
             {
                 return;
             }
+
             Dispose(true);
             GC.SuppressFinalize(this);
         }
@@ -71,6 +104,19 @@ namespace SS14.Client.Graphics.ClientEye
         ~Eye()
         {
             Dispose(false);
+        }
+    }
+
+    public static class EyeExtensions
+    {
+        public static Matrix3 GetMatrix(this IEye eye)
+        {
+            var matrix = Matrix3.Identity;
+            matrix.R0C0 = 1 / eye.Zoom.X;
+            matrix.R1C1 = 1 / eye.Zoom.Y;
+            matrix.R0C2 = -eye.Position.X / eye.Zoom.X;
+            matrix.R1C2 = -eye.Position.Y / eye.Zoom.Y;
+            return matrix;
         }
     }
 }

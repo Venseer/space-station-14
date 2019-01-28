@@ -25,7 +25,7 @@ namespace SS14.Client.Placement
         /// <summary>
         /// Local coordinates of our cursor on the map
         /// </summary>
-        public GridLocalCoordinates MouseCoords { get; set; }
+        public GridCoordinates MouseCoords { get; set; }
 
         /// <summary>
         /// Texture resource to draw to represent the entity we are tryign to spawn
@@ -81,18 +81,21 @@ namespace SS14.Client.Placement
         /// </summary>
         /// <param name="mouseScreen"></param>
         /// <returns></returns>
-        public abstract bool IsValidPosition(GridLocalCoordinates position);
+        public abstract bool IsValidPosition(GridCoordinates position);
 
         public virtual void Render()
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             if (SpriteToDraw == null)
             {
                 SetSprite();
             }
 
-            var size = SpriteToDraw.Size;
 
-            IEnumerable<GridLocalCoordinates> locationcollection;
+            IEnumerable<GridCoordinates> locationcollection;
             switch (pManager.PlacementType)
             {
                 case PlacementManager.PlacementTypes.None:
@@ -109,20 +112,21 @@ namespace SS14.Client.Placement
                     break;
             }
 
+            var size = SpriteToDraw.Size;
             foreach (var coordinate in locationcollection)
             {
-                var pos = coordinate.Position * EyeManager.PIXELSPERMETER - size / 2f;
+                var pos = coordinate.Position * EyeManager.PIXELSPERMETER * new Vector2(1, -1) - size / 2f;
                 var color = IsValidPosition(coordinate) ? ValidPlaceColor : InvalidPlaceColor;
-                pManager.drawNode.DrawTexture(SpriteToDraw.GodotTexture, pos.Convert(), color.Convert());
+                pManager.DrawNode.DrawTexture(SpriteToDraw.GodotTexture, pos.Convert(), color.Convert());
             }
         }
 
-        public IEnumerable<GridLocalCoordinates> SingleCoordinate()
+        public IEnumerable<GridCoordinates> SingleCoordinate()
         {
             yield return MouseCoords;
         }
 
-        public IEnumerable<GridLocalCoordinates> LineCoordinates()
+        public IEnumerable<GridCoordinates> LineCoordinates()
         {
             var placementdiff = MouseCoords.ToWorld().Position - pManager.StartPoint.ToWorld().Position;
             var iterations = 0f;
@@ -140,11 +144,11 @@ namespace SS14.Client.Placement
 
             for (var i = 0; i <= iterations; i++)
             {
-                yield return new GridLocalCoordinates(pManager.StartPoint.Position + distance * i, pManager.StartPoint.Grid);
+                yield return new GridCoordinates(pManager.StartPoint.Position + distance * i, pManager.StartPoint.Grid);
             }
         }
 
-        public IEnumerable<GridLocalCoordinates> GridCoordinates()
+        public IEnumerable<GridCoordinates> GridCoordinates()
         {
             var placementdiff = MouseCoords.ToWorld().Position - pManager.StartPoint.ToWorld().Position;
             var distanceX = new Vector2(placementdiff.X > 0 ? 1 : -1, 0) * GridDistancing;
@@ -157,7 +161,7 @@ namespace SS14.Client.Placement
             {
                 for (var y = 0; y <= iterationsY; y++)
                 {
-                    yield return new GridLocalCoordinates(pManager.StartPoint.Position + distanceX * x + distanceY * y, pManager.StartPoint.Grid);
+                    yield return new GridCoordinates(pManager.StartPoint.Position + distanceX * x + distanceY * y, pManager.StartPoint.Grid);
                 }
             }
         }
@@ -181,28 +185,28 @@ namespace SS14.Client.Placement
         /// Checks if the player is spawning within a certain range of his character if range is required on this mode
         /// </summary>
         /// <returns></returns>
-        public bool RangeCheck(GridLocalCoordinates coordinates)
+        public bool RangeCheck(GridCoordinates coordinates)
         {
             if (!RangeRequired)
                 return true;
             var range = pManager.CurrentPermission.Range;
-            if (range > 0 && !pManager.PlayerManager.LocalPlayer.ControlledEntity.GetComponent<ITransformComponent>().LocalPosition.InRange(coordinates, range))
+            if (range > 0 && !pManager.PlayerManager.LocalPlayer.ControlledEntity.Transform.GridPosition.InRange(coordinates, range))
                 return false;
             return true;
         }
 
-        public bool IsColliding(GridLocalCoordinates coordinates)
+        public bool IsColliding(GridCoordinates coordinates)
         {
             var bounds = pManager.ColliderAABB;
             var worldcoords = coordinates.ToWorld();
 
             var collisionbox = Box2.FromDimensions(
                 bounds.Left + worldcoords.Position.X,
-                bounds.Top + worldcoords.Position.Y,
+                bounds.Bottom + worldcoords.Position.Y,
                 bounds.Width,
                 bounds.Height);
 
-            if (pManager.CollisionManager.IsColliding(collisionbox, coordinates.MapID))
+            if (pManager.PhysicsManager.IsColliding(collisionbox, coordinates.MapID))
                 return true;
 
             return false;
@@ -218,12 +222,11 @@ namespace SS14.Client.Placement
             return pManager.eyeManager.WorldToScreen(point);
         }
 
-        protected GridLocalCoordinates ScreenToPlayerGrid(ScreenCoordinates coords)
+        protected GridCoordinates ScreenToPlayerGrid(ScreenCoordinates coords)
         {
             var worldPos = ScreenToWorld(coords.Position);
-            var mapMgr = IoCManager.Resolve<IMapManager>();
-            var entityGrid = pManager.PlayerManager.LocalPlayer.ControlledEntity.GetComponent<ITransformComponent>().GridID;
-            return new GridLocalCoordinates(worldPos, entityGrid);
+            var entityGrid = pManager.PlayerManager.LocalPlayer.ControlledEntity.Transform.GridID;
+            return new GridCoordinates(worldPos, entityGrid);
         }
     }
 }

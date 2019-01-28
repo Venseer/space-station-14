@@ -45,6 +45,11 @@ namespace SS14.Client.Input
         /// </summary>
         public void Handle()
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+
             var tree = IoCManager.Resolve<ISceneTreeHolder>();
             tree.SceneTree.SetInputAsHandled();
         }
@@ -73,12 +78,30 @@ namespace SS14.Client.Input
 
         public static explicit operator KeyEventArgs(Godot.InputEventKey args)
         {
-            return new KeyEventArgs(Keyboard.GonvertGodotKey(args.Scancode),
-                                    (UInt32)args.Unicode,
-                                    args.Alt,
-                                    args.Control,
-                                    args.Shift,
-                                    args.Command);
+            return new KeyEventArgs(Keyboard.ConvertGodotKey(args.Scancode),
+                (UInt32) args.Unicode,
+                args.Alt,
+                args.Control,
+                args.Shift,
+                args.Command);
+        }
+
+        public static explicit operator KeyEventArgs(Godot.InputEventMouseButton args)
+        {
+            var key = Mouse.MouseButtonToKey((Mouse.Button) args.ButtonIndex);
+            return new KeyEventArgs(key, 0, false, false, false, false);
+        }
+
+        public static explicit operator KeyEventArgs(OpenTK.Input.KeyboardKeyEventArgs args)
+        {
+            return new KeyEventArgs(Keyboard.ConvertOpenTKKey(args.Key),
+                0, args.Alt, args.Control, args.Shift, false);
+        }
+
+        public static explicit operator KeyEventArgs(OpenTK.Input.MouseButtonEventArgs args)
+        {
+            return new KeyEventArgs(Mouse.MouseButtonToKey(Mouse.ConvertOpenTKButton(args.Button)),
+                0, false, false, false, false);
         }
     }
 
@@ -96,11 +119,11 @@ namespace SS14.Client.Input
         public Vector2 Position { get; }
 
         protected MouseEventArgs(Mouse.ButtonMask buttonMask,
-                                 Vector2 position,
-                                 bool alt,
-                                 bool control,
-                                 bool shift,
-                                 bool system)
+            Vector2 position,
+            bool alt,
+            bool control,
+            bool shift,
+            bool system)
             : base(alt, control, shift, system)
         {
             ButtonMask = buttonMask;
@@ -140,6 +163,7 @@ namespace SS14.Client.Input
                     default:
                         return type;
                 }
+
                 if (Alt)
                     type |= ClickType.Alt;
                 if (Control)
@@ -154,13 +178,13 @@ namespace SS14.Client.Input
 
         // ALL the parameters!
         public MouseButtonEventArgs(Mouse.Button button,
-                                    bool doubleClick,
-                                    Mouse.ButtonMask buttonMask,
-                                    Vector2 position,
-                                    bool alt,
-                                    bool control,
-                                    bool shift,
-                                    bool system)
+            bool doubleClick,
+            Mouse.ButtonMask buttonMask,
+            Vector2 position,
+            bool alt,
+            bool control,
+            bool shift,
+            bool system)
             : base(buttonMask, position, alt, control, shift, system)
         {
             Button = button;
@@ -171,14 +195,23 @@ namespace SS14.Client.Input
         {
             // Before cutting this up,
             // this line was 281 characters long.
-            return new MouseButtonEventArgs((Mouse.Button)inputEvent.ButtonIndex,
-                                            inputEvent.Doubleclick,
-                                            (Mouse.ButtonMask)inputEvent.ButtonMask,
-                                            inputEvent.Position.Convert(),
-                                            inputEvent.Alt,
-                                            inputEvent.Control,
-                                            inputEvent.Shift,
-                                            inputEvent.Command);
+            return new MouseButtonEventArgs((Mouse.Button) inputEvent.ButtonIndex,
+                inputEvent.Doubleclick,
+                (Mouse.ButtonMask) inputEvent.ButtonMask,
+                inputEvent.Position.Convert(),
+                inputEvent.Alt,
+                inputEvent.Control,
+                inputEvent.Shift,
+                inputEvent.Command);
+        }
+
+        public static explicit operator MouseButtonEventArgs(OpenTK.Input.MouseButtonEventArgs inputEvent)
+        {
+            return new MouseButtonEventArgs(
+                Mouse.ConvertOpenTKButton(inputEvent.Button),
+                false, Mouse.ButtonMask.None,
+                new Vector2(inputEvent.X, inputEvent.Y),
+                false, false, false, false);
         }
     }
 
@@ -191,12 +224,12 @@ namespace SS14.Client.Input
 
         // ALL the parameters!
         public MouseWheelEventArgs(Mouse.Wheel wheelDirection,
-                                   Mouse.ButtonMask buttonMask,
-                                   Vector2 position,
-                                   bool alt,
-                                   bool control,
-                                   bool shift,
-                                   bool system)
+            Mouse.ButtonMask buttonMask,
+            Vector2 position,
+            bool alt,
+            bool control,
+            bool shift,
+            bool system)
             : base(buttonMask, position, alt, control, shift, system)
         {
             WheelDirection = wheelDirection;
@@ -206,13 +239,23 @@ namespace SS14.Client.Input
         {
             // Before cutting this up,
             // this line was 281 characters long.
-            return new MouseWheelEventArgs((Mouse.Wheel)inputEvent.ButtonIndex,
-                                            (Mouse.ButtonMask)inputEvent.ButtonMask,
-                                            inputEvent.Position.Convert(),
-                                            inputEvent.Alt,
-                                            inputEvent.Control,
-                                            inputEvent.Shift,
-                                            inputEvent.Command);
+            return new MouseWheelEventArgs((Mouse.Wheel) inputEvent.ButtonIndex,
+                (Mouse.ButtonMask) inputEvent.ButtonMask,
+                inputEvent.Position.Convert(),
+                inputEvent.Alt,
+                inputEvent.Control,
+                inputEvent.Shift,
+                inputEvent.Command);
+        }
+
+        public static explicit operator MouseWheelEventArgs(OpenTK.Input.MouseWheelEventArgs inputEvent)
+        {
+            var direction = inputEvent.Delta > 0 ? Mouse.Wheel.Up : Mouse.Wheel.Down;
+            return new MouseWheelEventArgs(
+                direction,
+                Mouse.ButtonMask.None,
+                new Vector2(inputEvent.X, inputEvent.Y),
+                false, false, false, false);
         }
     }
 
@@ -232,13 +275,13 @@ namespace SS14.Client.Input
 
         // ALL the parameters!
         public MouseMoveEventArgs(Vector2 relative,
-                                  Vector2 speed,
-                                  Mouse.ButtonMask buttonMask,
-                                  Vector2 position,
-                                  bool alt,
-                                  bool control,
-                                  bool shift,
-                                  bool system)
+            Vector2 speed,
+            Mouse.ButtonMask buttonMask,
+            Vector2 position,
+            bool alt,
+            bool control,
+            bool shift,
+            bool system)
             : base(buttonMask, position, alt, control, shift, system)
         {
             Relative = relative;
@@ -248,13 +291,22 @@ namespace SS14.Client.Input
         public static explicit operator MouseMoveEventArgs(Godot.InputEventMouseMotion inputEvent)
         {
             return new MouseMoveEventArgs(inputEvent.Relative.Convert(),
-                                          inputEvent.Speed.Convert(),
-                                          (Mouse.ButtonMask)inputEvent.ButtonMask,
-                                          inputEvent.Position.Convert(),
-                                          inputEvent.Alt,
-                                          inputEvent.Control,
-                                          inputEvent.Shift,
-                                          inputEvent.Command);
+                inputEvent.Speed.Convert(),
+                (Mouse.ButtonMask) inputEvent.ButtonMask,
+                inputEvent.Position.Convert(),
+                inputEvent.Alt,
+                inputEvent.Control,
+                inputEvent.Shift,
+                inputEvent.Command);
+        }
+
+        public static explicit operator MouseMoveEventArgs(OpenTK.Input.MouseMoveEventArgs inputEvent)
+        {
+            return new MouseMoveEventArgs(
+                new Vector2(inputEvent.XDelta, inputEvent.YDelta),
+                Vector2.Zero, Mouse.ButtonMask.None,
+                new Vector2(inputEvent.X, inputEvent.Y),
+                false, false, false, false);
         }
     }
 }

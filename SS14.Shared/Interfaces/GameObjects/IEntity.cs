@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Net.Configuration;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.Serialization;
+using SS14.Shared.Interfaces.GameObjects.Components;
 using SS14.Shared.Interfaces.Network;
+using SS14.Shared.Interfaces.Serialization;
 
 namespace SS14.Shared.Interfaces.GameObjects
 {
@@ -62,12 +62,18 @@ namespace SS14.Shared.Interfaces.GameObjects
         bool Match(IEntityQuery query);
 
         /// <summary>
+        ///     The entity's transform component.
+        /// </summary>
+        ITransformComponent Transform { get; }
+
+        /// <summary>
         ///     Public method to add a component to an entity.
         ///     Calls the component's onAdd method, which also adds it to the component manager.
         /// </summary>
         /// <typeparam name="T">The component type to add.</typeparam>
         /// <returns>The newly added component.</returns>
-        T AddComponent<T>() where T : Component, new();
+        T AddComponent<T>()
+            where T : Component, new();
 
         /// <summary>
         ///     Removes the component with the specified reference type,
@@ -128,7 +134,8 @@ namespace SS14.Shared.Interfaces.GameObjects
         /// <typeparam name="T">The component reference type to attempt to fetch.</typeparam>
         /// <param name="component">The component, if it was found. Null otherwise.</param>
         /// <returns>True if a component with specified type was found.</returns>
-        bool TryGetComponent<T>(out T component) where T : class;
+        bool TryGetComponent<T>(out T component)
+            where T : class;
 
         /// <summary>
         ///     Attempt to retrieve the component with specified type,
@@ -161,12 +168,20 @@ namespace SS14.Shared.Interfaces.GameObjects
         void Delete();
 
         /// <summary>
-        ///     Returns all components on the entity.
+        ///     Returns all components on the entity. This uses the reference system,
+        ///     so a component instance can be duplicated over multiple interfaces.
         /// </summary>
         /// <returns>An enumerable of components on the entity.</returns>
         IEnumerable<IComponent> GetAllComponents();
 
         /// <summary>
+        ///     Returns all component instances on an entity. This does not use the
+        ///     component reference system. Use this for serialization.
+        /// </summary>
+        /// <returns>An enumerable of component instances on the entity.</returns>
+        IEnumerable<IComponent> GetComponentInstances();
+
+            /// <summary>
         ///     Returns all components that are assignable to <typeparamref name="T"/>.
         ///     This does not go by component references.
         /// </summary>
@@ -195,19 +210,17 @@ namespace SS14.Shared.Interfaces.GameObjects
         void HandleNetworkMessage(IncomingEntityMessage message);
 
         /// <summary>
-        ///     Client method to handle an entity state object
-        /// </summary>
-        /// <param name="state"></param>
-        void HandleEntityState(EntityState state);
-
-        /// <summary>
         ///     Serverside method to prepare an entity state object
         /// </summary>
         /// <returns></returns>
         EntityState GetEntityState(uint fromTick);
 
-        void SubscribeEvent<T>(EntityEventHandler<EntityEventArgs> evh, IEntityEventSubscriber s) where T : EntityEventArgs;
-        void UnsubscribeEvent<T>(IEntityEventSubscriber s) where T : EntityEventArgs;
+        void SubscribeEvent<T>(EntityEventHandler<EntityEventArgs> evh, IEntityEventSubscriber s)
+            where T : EntityEventArgs;
+
+        void UnsubscribeEvent<T>(IEntityEventSubscriber s)
+            where T : EntityEventArgs;
+
         void RaiseEvent(EntityEventArgs toRaise);
 
         void Dirty();

@@ -8,15 +8,24 @@ enabled = false
 [net]
 tickrate = 60
 port = 1212
-allowdupeip = true
+bindto = "::,0.0.0.0"
+
+[status]
+enabled = false
+bind = "localhost:1212"
 
 [game]
 hostname = "MyServer"
 mapname = "stationstation"
-maxplayers = 32
+maxplayers = 64
 type = 1
 welcomemsg = "Welcome to the server!"
 
 [console]
 width = 120
 height = 60
+password = "honk"
+# If this is true, people connecting from this machine (loopback)
+# will automatically be elevated to full admin privileges.
+# This literally works by checking if address == 127.0.0.1 || address == ::1
+loginlocal = true

@@ -5,16 +5,32 @@ using SS14.Shared.GameObjects;
 using SS14.Shared.Input;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Map;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Client.GameObjects
 {
     // Notice: Most actual logic for clicking is done by the game screen.
     public class ClickableComponent : Component, IClientClickableComponent
     {
+        private string _baseShader;
+        private string _selectionShader;
+
         public override string Name => "Clickable";
         public override uint? NetID => NetIDs.CLICKABLE;
 
-        public bool CheckClick(GridLocalCoordinates worldPos, out int drawdepth)
+        [ViewVariables(VVAccess.ReadWrite)]
+        public string BaseShader { get => _baseShader; private set => _baseShader = value; }
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public string SelectionShader { get => _selectionShader; set => _selectionShader = value; }
+
+        public override void ExposeData(Shared.Serialization.ObjectSerializer serializer)
+        {
+            serializer.DataFieldCached(ref _baseShader, "baseshader", "shaded");
+            serializer.DataFieldCached(ref _selectionShader, "selectionshader", "selection_outline");
+        }
+
+        public bool CheckClick(GridCoordinates worldPos, out int drawdepth)
         {
             var component = Owner.GetComponent<IClickTargetComponent>();
 
@@ -26,19 +42,18 @@ namespace SS14.Client.GameObjects
         {
             var message = new ClientEntityClickMsg(user.Uid, clickType);
             SendMessage(message);
-            SendNetworkMessage(message);
         }
 
         public void OnMouseEnter()
         {
             var sprite = Owner.GetComponent<ISpriteComponent>();
-            sprite.LayerSetShader(0, "selection_outline");
+            sprite.LayerSetShader(0, SelectionShader);
         }
 
         public void OnMouseLeave()
         {
             var sprite = Owner.GetComponent<ISpriteComponent>();
-            sprite.LayerSetShader(0, (Shader)null);
+            sprite.LayerSetShader(0, BaseShader);
         }
     }
 }

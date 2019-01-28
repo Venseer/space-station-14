@@ -1,4 +1,5 @@
 ﻿using System;
+using SS14.Shared.Serialization;
 
 namespace SS14.Shared.GameObjects
 {
@@ -6,12 +7,25 @@ namespace SS14.Shared.GameObjects
     ///     This type contains a network identification number of an entity.
     ///     This can be used by the EntityManager to reference an IEntity.
     /// </summary>
-    [Serializable]
-    public struct EntityUid : IEquatable<EntityUid>, IComparable<EntityUid>
+    [Serializable, NetSerializable]
+    public readonly struct EntityUid : IEquatable<EntityUid>, IComparable<EntityUid>
     {
-        private readonly int _uid;
+        /// <summary>
+        ///     If this bit is set on a UID, it's client sided.
+        ///     Use <see cref="IsClientSide" /> to check this.
+        /// </summary>
+        internal const int ClientUid = 2 << 29;
+        readonly int _uid;
 
+        /// <summary>
+        ///     An Invalid entity UID you can compare against.
+        /// </summary>
         public static readonly EntityUid Invalid = new EntityUid(0);
+
+        /// <summary>
+        ///     The first entity UID the entityManager should use when the manager is initialized.
+        /// </summary>
+        public static readonly EntityUid FirstUid = new EntityUid(1);
 
         /// <summary>
         ///     Creates an instance of this structure, with the given network ID.
@@ -22,12 +36,32 @@ namespace SS14.Shared.GameObjects
         }
 
         /// <summary>
+        ///     Creates an entity UID by parsing a string number.
+        /// </summary>
+        public static EntityUid Parse(string uid)
+        {
+            if (uid.StartsWith("c"))
+            {
+                return new EntityUid(int.Parse(uid.Substring(1)) | ClientUid);
+            }
+            else
+            {
+                return new EntityUid(int.Parse(uid));
+            }
+        }
+
+        /// <summary>
         ///     Checks if the ID value is valid. Does not check if it identifies
         ///     a valid Entity.
         /// </summary>
         public bool IsValid()
         {
             return _uid > 0;
+        }
+
+        public bool IsClientSide()
+        {
+            return (_uid & (2 << 29)) != 0;
         }
 
         /// <inheritdoc />
@@ -67,7 +101,7 @@ namespace SS14.Shared.GameObjects
 
         /// <summary>
         ///     Explicit conversion of EntityId to int. This should only be used in special
-        ///     cases like serialization. Do NOT use the in content.
+        ///     cases like serialization. Do NOT use this in content.
         /// </summary>
         public static explicit operator int(EntityUid self)
         {
@@ -77,9 +111,14 @@ namespace SS14.Shared.GameObjects
         /// <inheritdoc />
         public override string ToString()
         {
+            if (IsClientSide())
+            {
+                return $"c{_uid & ~ClientUid}";
+            }
             return _uid.ToString();
         }
 
+        /// <inheritdoc />
         public int CompareTo(EntityUid other)
         {
             return _uid.CompareTo(other._uid);

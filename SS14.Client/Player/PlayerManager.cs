@@ -1,10 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using SS14.Client.Interfaces;
-using SS14.Client.Interfaces.Player;
-using SS14.Shared;
 using SS14.Shared.Configuration;
 using SS14.Shared.Enums;
 using SS14.Shared.GameObjects;
@@ -15,6 +12,8 @@ using SS14.Shared.Interfaces.Network;
 using SS14.Shared.IoC;
 using SS14.Shared.Network;
 using SS14.Shared.Network.Messages;
+using SS14.Shared.Players;
+using SS14.Shared.Utility;
 
 namespace SS14.Client.Player
 {
@@ -25,8 +24,6 @@ namespace SS14.Client.Player
     /// </summary>
     public class PlayerManager : IPlayerManager
     {
-        //private readonly List<PostProcessingEffect> _effects = new List<PostProcessingEffect>();
-
         [Dependency]
         private readonly IClientNetManager _network;
 
@@ -42,7 +39,7 @@ namespace SS14.Client.Player
         /// <summary>
         ///     Active sessions of connected clients to the server.
         /// </summary>
-        private Dictionary<int, PlayerSession> _sessions;
+        private Dictionary<NetSessionId, IPlayerSession> _sessions;
 
         /// <inheritdoc />
         public int PlayerCount => _sessions.Values.Count;
@@ -54,10 +51,10 @@ namespace SS14.Client.Player
         public LocalPlayer LocalPlayer { get; private set; }
 
         /// <inheritdoc />
-        public IEnumerable<PlayerSession> Sessions => _sessions.Values;
+        public IEnumerable<IPlayerSession> Sessions => _sessions.Values;
 
         /// <inheritdoc />
-        public IReadOnlyDictionary<int, PlayerSession> SessionsDict => _sessions;
+        public IReadOnlyDictionary<NetSessionId, IPlayerSession> SessionsDict => _sessions;
 
         /// <inheritdoc />
         public event EventHandler PlayerListUpdated;
@@ -65,17 +62,12 @@ namespace SS14.Client.Player
         /// <inheritdoc />
         public void Initialize()
         {
-            _sessions = new Dictionary<int, PlayerSession>();
+            _sessions = new Dictionary<NetSessionId, IPlayerSession>();
 
             _config.RegisterCVar("player.name", "Joe Genero", CVar.ARCHIVE);
 
             _network.RegisterNetMessage<MsgPlayerListReq>(MsgPlayerListReq.NAME);
-
             _network.RegisterNetMessage<MsgPlayerList>(MsgPlayerList.NAME, HandlePlayerList);
-
-            _network.RegisterNetMessage<MsgSession>(MsgSession.NAME, HandleSessionMessage);
-
-            _network.RegisterNetMessage<MsgClGreet>(MsgClGreet.NAME);
         }
 
         /// <inheritdoc />
@@ -91,10 +83,7 @@ namespace SS14.Client.Player
         /// <inheritdoc />
         public void Update(float frameTime)
         {
-            //foreach (var e in _effects.ToArray())
-            //{
-            //    e.Update(frameTime);
-            //}
+            // Uh, nothing anymore I guess.
         }
 
         /// <inheritdoc />
@@ -104,17 +93,6 @@ namespace SS14.Client.Player
             _sessions.Clear();
         }
 
-        /*
-        /// <inheritdoc />
-        public void ApplyEffects(RenderImage image)
-        {
-            foreach (var e in _effects)
-            {
-                e.ProcessImage(image);
-            }
-        }
-        */
-
         /// <inheritdoc />
         public void ApplyPlayerStates(IEnumerable<PlayerState> list)
         {
@@ -123,11 +101,11 @@ namespace SS14.Client.Player
                 // This happens when the server says "nothing changed!"
                 return;
             }
-            Debug.Assert(_network.IsConnected, "Received player state without being connected?");
-            Debug.Assert(LocalPlayer != null, "Call Startup()");
-            Debug.Assert(LocalPlayer.Session != null, "Received player state before Session finished setup.");
+            DebugTools.Assert(_network.IsConnected, "Received player state without being connected?");
+            DebugTools.Assert(LocalPlayer != null, "Call Startup()");
+            DebugTools.Assert(LocalPlayer.Session != null, "Received player state before Session finished setup.");
 
-            var myState = list.FirstOrDefault(s => s.Index == LocalPlayer.Index);
+            var myState = list.FirstOrDefault(s => s.SessionId == LocalPlayer.SessionId);
 
             if (myState != null)
             {
@@ -136,23 +114,6 @@ namespace SS14.Client.Player
             }
 
             UpdatePlayerList(list);
-        }
-
-        /// <summary>
-        ///     Handles an incoming session NetMsg from the server.
-        /// </summary>
-        private void HandleSessionMessage(MsgSession msg)
-        {
-            switch (msg.MsgType)
-            {
-                case PlayerSessionMessage.AttachToEntity:
-                    break;
-                case PlayerSessionMessage.JoinLobby:
-                    break;
-                case PlayerSessionMessage.AddPostProcessingEffect:
-                    //AddEffect(msg.PpType, msg.PpDuration);
-                    break;
-            }
         }
 
         /// <summary>
@@ -170,11 +131,18 @@ namespace SS14.Client.Player
         /// <param name="entity">AttachedEntity in the server session.</param>
         private void UpdateAttachedEntity(EntityUid? entity)
         {
-            if (entity != null &&
-                (LocalPlayer.ControlledEntity == null ||
-                 LocalPlayer.ControlledEntity != null && entity != LocalPlayer.ControlledEntity.Uid))
-                LocalPlayer.AttachEntity(
-                    _entityManager.GetEntity(entity.Value));
+            if (LocalPlayer.ControlledEntity?.Uid == entity)
+            {
+                return;
+            }
+
+            if (entity == null)
+            {
+                LocalPlayer.DetachEntity();
+                return;
+            }
+
+            LocalPlayer.AttachEntity(_entityManager.GetEntity(entity.Value));
         }
 
         /// <summary>
@@ -192,97 +160,57 @@ namespace SS14.Client.Player
         {
             var dirty = false;
 
-            // diff the sessions to the states
-            for (var i = 0; i < MaxPlayers; i++)
+            var hitSet = new List<NetSessionId>();
+
+            foreach (var state in remotePlayers)
             {
-                // try to get local session
-                var cSession = _sessions.ContainsKey(i) ? _sessions[i] : null;
+                hitSet.Add(state.SessionId);
 
-                // should these be mapped NetId -> PlyInfo?
-                var info = remotePlayers.FirstOrDefault(state => state.Index == i);
-
-                // slot already occupied
-                if (cSession != null && info != null)
+                if (_sessions.TryGetValue(state.SessionId, out var local))
                 {
-                    if (info.Uuid != cSession.Uuid) // not the same player
-                    {
-                        Debug.Assert(LocalPlayer.Index != info.Index, "my uuid should not change");
-                        dirty = true;
+                    // Exists, update data.
+                    if (local.Name == state.Name && local.Status == state.Status && local.Ping == state.Ping)
+                        continue;
 
-                        _sessions.Remove(info.Index);
-                        var newSession = new PlayerSession(info.Index, info.Uuid);
-                        newSession.Name = info.Name;
-                        newSession.Status = info.Status;
-                        newSession.Ping = info.Ping;
-                        _sessions.Add(info.Index, newSession);
-                    }
-                    else // same player, update info
-                    {
-                        if (cSession.Name == info.Name && cSession.Status == info.Status && cSession.Ping == info.Ping)
-                            continue;
-
-                        dirty = true;
-                        cSession.Name = info.Name;
-                        cSession.Status = info.Status;
-                        cSession.Ping = info.Ping;
-                    }
+                    dirty = true;
+                    local.Name = state.Name;
+                    local.Status = state.Status;
+                    local.Ping = state.Ping;
                 }
-                // clear slot, player left
-                else if (cSession != null)
+                else
                 {
-                    Debug.Assert(LocalPlayer.Index != i, "I'm still connected to the server, but i left?");
+                    // New, give him a slot.
                     dirty = true;
 
-                    _sessions.Remove(cSession.Index);
-                }
-
-                // add new session to slot
-                else if (info != null)
-                {
-                    Debug.Assert(LocalPlayer.Index != info.Index || LocalPlayer.Session == null, "I already have a session, why am i getting a new one?");
-                    dirty = true;
-
-                    var newSession = new PlayerSession(info.Index, info.Uuid);
-                    newSession.Name = info.Name;
-                    newSession.Status = info.Status;
-                    newSession.Ping = info.Ping;
-                    _sessions.Add(info.Index, newSession);
-
-                    if (LocalPlayer.Index == info.Index)
+                    var newSession = new PlayerSession(state.SessionId)
+                    {
+                        Name = state.Name,
+                        Status = state.Status,
+                        Ping = state.Ping
+                    };
+                    _sessions.Add(state.SessionId, newSession);
+                    if (state.SessionId == LocalPlayer.SessionId)
+                    {
                         LocalPlayer.Session = newSession;
+                    }
                 }
-                // else they are both null, continue
             }
 
-            //raise event
-            if (dirty)
-                PlayerListUpdated?.Invoke(this, EventArgs.Empty);
-        }
-        /*
-        private void AddEffect(PostProcessingEffectType type, float duration)
-        {
-            PostProcessingEffect e;
-            switch (type)
+            foreach (var existing in hitSet)
             {
-                case PostProcessingEffectType.Blur:
-                    e = new BlurPostProcessingEffect(duration);
-                    e.OnExpired += EffectExpired;
-                    _effects.Add(e);
-                    break;
-                case PostProcessingEffectType.Death:
-                    e = new DeathPostProcessingEffect(duration);
-                    e.OnExpired += EffectExpired;
-                    _effects.Add(e);
-                    break;
+                // clear slot, player left
+                if (!_sessions.ContainsKey(existing))
+                {
+                    DebugTools.Assert(LocalPlayer.SessionId != existing, "I'm still connected to the server, but i left?");
+                    _sessions.Remove(existing);
+                    dirty = true;
+                }
+            }
+
+            if (dirty)
+            {
+                PlayerListUpdated?.Invoke(this, EventArgs.Empty);
             }
         }
-
-        private void EffectExpired(PostProcessingEffect effect)
-        {
-            effect.OnExpired -= EffectExpired;
-            if (_effects.Contains(effect))
-                _effects.Remove(effect);
-        }
-        */
     }
 }

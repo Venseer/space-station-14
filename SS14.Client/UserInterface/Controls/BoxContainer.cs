@@ -1,9 +1,26 @@
-namespace SS14.Client.UserInterface.Controls
+﻿namespace SS14.Client.UserInterface.Controls
 {
-    public class BoxContainer : Control
+    [ControlWrap(typeof(BoxContainer))]
+    public abstract class BoxContainer : Container
     {
-        public BoxContainer() : base() {}
-        public BoxContainer(string name) : base(name) {}
-        public BoxContainer(Godot.BoxContainer sceneControl) : base(sceneControl) {}
+        public BoxContainer() : base()
+        {
+        }
+
+        public BoxContainer(string name) : base(name)
+        {
+        }
+
+        internal BoxContainer(Godot.BoxContainer sceneControl) : base(sceneControl)
+        {
+        }
+
+        private int? _separationOverride;
+
+        public int? SeparationOverride
+        {
+            get => _separationOverride ?? GetConstantOverride("separation");
+            set => SetConstantOverride("separation", _separationOverride = value);
+        }
     }
 }

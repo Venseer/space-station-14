@@ -6,7 +6,12 @@
 ;   [section] ; section goes between []
 ;   param=value ; assign values to parameters
 
-config_version=3
+config_version=4
+
+_global_script_classes=[  ]
+_global_script_class_icons={
+
+}
 
 [application]
 
@@ -16,10 +21,6 @@ config/use_custom_user_dir=true
 boot_splash/image="res://Art/bootsplash.png"
 boot_splash/fullsize=false
 config/icon="res://logo.png"
-
-[autoload]
-
-SS14Loader="*res://SS14Loader.cs"
 
 [gdnative]
 

@@ -1,12 +1,21 @@
-namespace SS14.Client.UserInterface.Controls
+﻿namespace SS14.Client.UserInterface.Controls
 {
-    public class VBoxContainer : Control
+    [ControlWrap(typeof(Godot.VBoxContainer))]
+    public class VBoxContainer : BoxContainer
     {
-        public VBoxContainer() : base() { }
-        public VBoxContainer(string name) : base(name) { }
-        public VBoxContainer(Godot.VBoxContainer sceneControl) : base(sceneControl) { }
+        public VBoxContainer() : base()
+        {
+        }
 
-        protected override Godot.Control SpawnSceneControl()
+        public VBoxContainer(string name) : base(name)
+        {
+        }
+
+        internal VBoxContainer(Godot.VBoxContainer sceneControl) : base(sceneControl)
+        {
+        }
+
+        private protected override Godot.Control SpawnSceneControl()
         {
             return new Godot.VBoxContainer();
         }

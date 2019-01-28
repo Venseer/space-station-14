@@ -1,9 +1,11 @@
-﻿using SS14.Client.Graphics;
+﻿using System;
+using SS14.Client.Graphics;
 using SS14.Client.Interfaces.ResourceManagement;
 using SS14.Shared.Log;
 using SS14.Shared.Utility;
-using System;
 using System.IO;
+using SS14.Client.Interfaces.Graphics;
+using SS14.Shared.IoC;
 
 namespace SS14.Client.ResourceManagement
 {
@@ -19,22 +21,55 @@ namespace SS14.Client.ResourceManagement
             {
                 throw new FileNotFoundException("Content file does not exist for texture");
             }
-            if (!cache.TryGetDiskFilePath(path, out string diskPath))
-            {
-                throw new InvalidOperationException("Textures can only be loaded from disk.");
-            }
-            godotTexture = new Godot.ImageTexture();
-            godotTexture.Load(diskPath);
-            // If it fails to load it won't change the texture dimensions, so they'll still be at zero.
-            if (godotTexture.GetWidth() == 0)
-            {
-                throw new InvalidDataException();
-            }
-            // Disable filter by default because pixel art.
-            godotTexture.SetFlags(godotTexture.GetFlags() & ~(int)Godot.Texture.FlagsEnum.Filter);
-            Texture = new GodotTextureSource(godotTexture);
+
             // Primarily for tracking down iCCP sRGB errors in the image files.
-            Logger.Debug($"Loaded texture {Path.GetFullPath(diskPath)}.");
+            Logger.DebugS("res.tex", $"Loading texture {path}.");
+
+            switch (GameController.Mode)
+            {
+                case GameController.DisplayMode.Headless:
+                    Texture = new BlankTexture();
+                    break;
+                case GameController.DisplayMode.Godot:
+                    _loadGodot(cache, path);
+                    break;
+                case GameController.DisplayMode.OpenGL:
+                    _loadOpenGL(cache, path);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+
+        private void _loadGodot(IResourceCache cache, ResourcePath path)
+        {
+            DebugTools.Assert(GameController.Mode == GameController.DisplayMode.Godot);
+
+            using (var stream = cache.ContentFileRead(path))
+            {
+                var buffer = stream.ToArray();
+                var image = new Godot.Image();
+                var error = image.LoadPngFromBuffer(buffer);
+                if (error != Godot.Error.Ok)
+                {
+                    throw new InvalidDataException($"Unable to load texture from buffer, reason: {error}");
+                }
+                godotTexture = new Godot.ImageTexture();
+                godotTexture.CreateFromImage(image);
+            }
+
+            // Disable filter by default because pixel art.
+            godotTexture.SetFlags(godotTexture.GetFlags() & ~(int) Godot.Texture.FlagsEnum.Filter);
+            Texture = new GodotTextureSource(godotTexture);
+        }
+
+        private void _loadOpenGL(IResourceCache cache, ResourcePath path)
+        {
+            DebugTools.Assert(GameController.Mode == GameController.DisplayMode.OpenGL);
+
+            var manager = IoCManager.Resolve<IDisplayManagerOpenGL>();
+
+            Texture = manager.LoadTextureFromPNGStream(cache.ContentFileRead(path), path.ToString());
         }
 
         public static implicit operator Texture(TextureResource res)
@@ -44,8 +79,10 @@ namespace SS14.Client.ResourceManagement
 
         public override void Dispose()
         {
-            godotTexture.Dispose();
-            godotTexture = null;
+            if (GameController.OnGodot)
+            {
+                godotTexture.Dispose();
+            }
         }
     }
 }

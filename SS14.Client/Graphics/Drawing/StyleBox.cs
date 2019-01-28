@@ -21,7 +21,19 @@ namespace SS14.Client.Graphics.Drawing
             Right = 4,
             Left = 8,
             All = Top | Bottom | Right | Left,
+            Vertical = Top | Bottom,
+            Horizontal = Left | Right,
         }
+    }
+
+    internal class GodotStyleBoxWrap : StyleBox
+    {
+        public GodotStyleBoxWrap(Godot.StyleBox godotStyleBox)
+        {
+            GodotStyleBox = godotStyleBox;
+        }
+
+        internal override Godot.StyleBox GodotStyleBox { get; }
     }
 
     /// <summary>
@@ -30,11 +42,16 @@ namespace SS14.Client.Graphics.Drawing
     public class StyleBoxTexture : StyleBox
     {
         private readonly Godot.StyleBoxTexture stylebox;
-
         internal override Godot.StyleBox GodotStyleBox => stylebox;
+
 
         public StyleBoxTexture()
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
+
             stylebox = new Godot.StyleBoxTexture();
         }
 
@@ -53,43 +70,85 @@ namespace SS14.Client.Graphics.Drawing
 
         public float MarginLeft
         {
-            get => stylebox.MarginLeft;
-            set => stylebox.MarginLeft = value;
+            get => GameController.OnGodot ? stylebox.MarginLeft : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.MarginLeft = value;
+                }
+            }
         }
 
         public float MarginRight
         {
-            get => stylebox.MarginRight;
-            set => stylebox.MarginRight = value;
+            get => GameController.OnGodot ? stylebox.MarginRight : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.MarginRight = value;
+                }
+            }
         }
 
         public float MarginTop
         {
-            get => stylebox.MarginTop;
-            set => stylebox.MarginTop = value;
+            get => GameController.OnGodot ? stylebox.MarginTop : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.MarginTop = value;
+                }
+            }
         }
 
         public float MarginBottom
         {
-            get => stylebox.MarginBottom;
-            set => stylebox.MarginBottom = value;
+            get => GameController.OnGodot ? stylebox.MarginBottom : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.MarginBottom = value;
+                }
+            }
         }
 
         public Color Modulate
         {
-            get => stylebox.ModulateColor.Convert();
-            set => stylebox.ModulateColor = value.Convert();
+            get => GameController.OnGodot ? stylebox.ModulateColor.Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.ModulateColor = value.Convert();
+                }
+            }
         }
 
         private Texture cachedTexture;
+
         public Texture Texture
         {
             get
             {
-                return cachedTexture ?? new GodotTextureSource((Godot.Texture)stylebox.Texture);
+                if (!GameController.OnGodot)
+                {
+                    return null;
+                }
+
+                return cachedTexture ?? new GodotTextureSource((Godot.Texture) stylebox.Texture);
             }
             // Woo implicit casts.
-            set => stylebox.Texture = cachedTexture = value;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.Texture = cachedTexture = value;
+                }
+            }
         }
 
         /// <summary>
@@ -123,8 +182,14 @@ namespace SS14.Client.Graphics.Drawing
     {
         public Color BackgroundColor
         {
-            get => stylebox.BgColor.Convert();
-            set => stylebox.BgColor = value.Convert();
+            get => GameController.OnGodot ? stylebox.BgColor.Convert() : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.BgColor = value.Convert();
+                }
+            }
         }
 
         private readonly Godot.StyleBoxFlat stylebox;
@@ -133,7 +198,85 @@ namespace SS14.Client.Graphics.Drawing
 
         public StyleBoxFlat()
         {
-            stylebox = new Godot.StyleBoxFlat();
+            if (GameController.OnGodot)
+            {
+                stylebox = new Godot.StyleBoxFlat();
+            }
+        }
+
+        public float MarginLeft
+        {
+            get => GameController.OnGodot ? stylebox.ContentMarginLeft : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.ContentMarginLeft = value;
+                }
+            }
+        }
+
+        public float MarginRight
+        {
+            get => GameController.OnGodot ? stylebox.ContentMarginRight : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.ContentMarginRight = value;
+                }
+            }
+        }
+
+        public float MarginTop
+        {
+            get => GameController.OnGodot ? stylebox.ContentMarginTop : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.ContentMarginTop = value;
+                }
+            }
+        }
+
+        public float MarginBottom
+        {
+            get => GameController.OnGodot ? stylebox.ContentMarginBottom : default;
+            set
+            {
+                if (GameController.OnGodot)
+                {
+                    stylebox.ContentMarginBottom = value;
+                }
+            }
+        }
+
+
+        /// <summary>
+        ///     Allows setting multiple margins at once.
+        /// </summary>
+        public void SetContentMargin(Margin margin, float value)
+        {
+            if ((margin & Margin.Top) != 0)
+            {
+                MarginTop = value;
+            }
+
+            if ((margin & Margin.Bottom) != 0)
+            {
+                MarginBottom = value;
+            }
+
+            if ((margin & Margin.Right) != 0)
+            {
+                MarginRight = value;
+            }
+
+            if ((margin & Margin.Left) != 0)
+            {
+                MarginLeft = value;
+            }
         }
     }
 }

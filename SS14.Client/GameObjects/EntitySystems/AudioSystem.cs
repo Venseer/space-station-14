@@ -7,7 +7,7 @@ using SS14.Client.ResourceManagement;
 using SS14.Client.Utility;
 using SS14.Shared.Audio;
 using SS14.Shared.GameObjects;
-using SS14.Shared.GameObjects.System;
+using SS14.Shared.GameObjects.Systems;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.Interfaces.Network;
 using SS14.Shared.IoC;
@@ -60,7 +60,10 @@ namespace SS14.Client.GameObjects.EntitySystems
         /// <param name="stream">The audio stream to play.</param>
         public void Play(AudioStream stream, AudioParams? audioParams = null)
         {
-            var key = LastPlayKey++;
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             var player = new Godot.AudioStreamPlayer()
             {
                 Stream = stream.GodotAudioStream,
@@ -95,6 +98,10 @@ namespace SS14.Client.GameObjects.EntitySystems
         /// <param name="entity">The entity "emitting" the audio.</param>
         public void Play(AudioStream stream, IEntity entity, AudioParams? audioParams = null)
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             var parent = entity.GetComponent<IGodotTransformComponent>().SceneNode;
             var player = new Godot.AudioStreamPlayer2D()
             {
@@ -119,7 +126,7 @@ namespace SS14.Client.GameObjects.EntitySystems
         /// </summary>
         /// <param name="filename">The resource path to the OGG Vorbis file to play.</param>
         /// <param name="coordinates">The coordinates at which to play the audio.</param>
-        public void Play(string filename, GridLocalCoordinates coordinates, AudioParams? audioParams = null)
+        public void Play(string filename, GridCoordinates coordinates, AudioParams? audioParams = null)
         {
             Play(resourceCache.GetResource<AudioResource>(new ResourcePath(filename)), coordinates, audioParams);
         }
@@ -129,8 +136,12 @@ namespace SS14.Client.GameObjects.EntitySystems
         /// </summary>
         /// <param name="filename">The audio stream to play.</param>
         /// <param name="coordinates">The coordinates at which to play the audio.</param>
-        public void Play(AudioStream stream, GridLocalCoordinates coordinates, AudioParams? audioParams = null)
+        public void Play(AudioStream stream, GridCoordinates coordinates, AudioParams? audioParams = null)
         {
+            if (!GameController.OnGodot)
+            {
+                return;
+            }
             var player = new Godot.AudioStreamPlayer2D()
             {
                 Stream = stream.GodotAudioStream,
@@ -154,8 +165,6 @@ namespace SS14.Client.GameObjects.EntitySystems
         public override void HandleNetMessage(INetChannel channel, EntitySystemMessage message)
         {
             base.HandleNetMessage(channel, message);
-
-            Logger.Debug($"Ding: {message.GetType()}");
 
             if (!(message is AudioMessage msg))
             {

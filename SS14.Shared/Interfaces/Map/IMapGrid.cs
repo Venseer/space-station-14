@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using SS14.Shared.GameObjects.Components.Transform;
 using SS14.Shared.Map;
 using SS14.Shared.Maths;
 
@@ -65,7 +66,7 @@ namespace SS14.Shared.Interfaces.Map
         /// </summary>
         /// <param name="worldPos">The location of the tile in coordinates.</param>
         /// <returns>The tile at the world coordinates.</returns>
-        TileRef GetTile(GridLocalCoordinates worldPos);
+        TileRef GetTile(GridCoordinates worldPos);
 
         /// <summary>
         ///     Returns all tiles in the grid, in row-major order [xTileIndex, yTileIndex].
@@ -78,7 +79,7 @@ namespace SS14.Shared.Interfaces.Map
         /// </summary>
         /// <param name="worldPos"></param>
         /// <param name="tile">The tile to insert at the coordinates.</param>
-        void SetTile(GridLocalCoordinates worldPos, Tile tile);
+        void SetTile(GridCoordinates worldPos, Tile tile);
 
         /// <summary>
         ///     Modifies a single tile inside of the chunk.
@@ -86,7 +87,7 @@ namespace SS14.Shared.Interfaces.Map
         /// <param name="worldPos"></param>
         /// <param name="tileId">The new internal ID of the tile.</param>
         /// <param name="tileData">The new data of the tile.</param>
-        void SetTile(GridLocalCoordinates worldPos, ushort tileId, ushort tileData = 0);
+        void SetTile(GridCoordinates worldPos, ushort tileId, ushort tileData = 0);
 
         /// <summary>
         ///     Returns all tiles inside the area that match the predicate.
@@ -98,6 +99,20 @@ namespace SS14.Shared.Interfaces.Map
         IEnumerable<TileRef> GetTilesIntersecting(Box2 worldArea, bool ignoreEmpty = true, Predicate<TileRef> predicate = null);
 
         #endregion TileAccess
+
+        #region SnapGridAccess
+
+        IEnumerable<SnapGridComponent> GetSnapGridCell(GridCoordinates worldPos, SnapGridOffset offset);
+        IEnumerable<SnapGridComponent> GetSnapGridCell(MapIndices pos, SnapGridOffset offset);
+
+        MapIndices SnapGridCellFor(GridCoordinates worldPos, SnapGridOffset offset);
+
+        void AddToSnapGridCell(MapIndices pos, SnapGridOffset offset, SnapGridComponent snap);
+        void AddToSnapGridCell(GridCoordinates worldPos, SnapGridOffset offset, SnapGridComponent snap);
+        void RemoveFromSnapGridCell(MapIndices pos, SnapGridOffset offset, SnapGridComponent snap);
+        void RemoveFromSnapGridCell(GridCoordinates worldPos, SnapGridOffset offset, SnapGridComponent snap);
+
+        #endregion SnapGridAccess
 
         #region ChunkAccess
 
@@ -145,7 +160,7 @@ namespace SS14.Shared.Interfaces.Map
         /// </summary>
         /// <param name="posLocal">The world-space coordinates with local grid origin.</param>
         /// <returns>The world-space coordinates with global origin.</returns>
-        GridLocalCoordinates LocalToWorld(GridLocalCoordinates posLocal);
+        GridCoordinates LocalToWorld(GridCoordinates posLocal);
 
         /// <summary>
         ///     Transforms local vectors into world space vectors
@@ -159,7 +174,7 @@ namespace SS14.Shared.Interfaces.Map
         /// </summary>
         /// <param name="gridTile"></param>
         /// <returns></returns>
-        GridLocalCoordinates GridTileToLocal(MapIndices gridTile);
+        GridCoordinates GridTileToLocal(MapIndices gridTile);
 
         /// <summary>
         ///     Transforms grid indices into an outvar tile, returns false if no tile is found

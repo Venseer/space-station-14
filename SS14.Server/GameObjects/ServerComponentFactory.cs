@@ -1,7 +1,11 @@
 ﻿using SS14.Server.GameObjects.Components;
 using SS14.Server.GameObjects.Components.Container;
+using SS14.Server.GameObjects.Components.Markers;
+using SS14.Server.GameObjects.Components.UserInterface;
 using SS14.Server.Interfaces.GameObjects;
 using SS14.Shared.GameObjects;
+using SS14.Shared.GameObjects.Components.Transform;
+using SS14.Shared.GameObjects.Components.UserInterface;
 using SS14.Shared.Interfaces.GameObjects.Components;
 
 namespace SS14.Server.GameObjects
@@ -13,6 +17,7 @@ namespace SS14.Server.GameObjects
             RegisterIgnore("Icon");
             RegisterIgnore("Occluder");
             RegisterIgnore("Eye");
+            RegisterIgnore("IconSmooth");
 
             Register<BasicActorComponent>();
             RegisterReference<BasicActorComponent, IActorComponent>();
@@ -22,6 +27,8 @@ namespace SS14.Server.GameObjects
             Register<BoundingBoxComponent>();
             Register<PointLightComponent>();
 
+            RegisterIgnore("Input");
+
             Register<PlayerInputMoverComponent>();
             RegisterReference<PlayerInputMoverComponent, IMoverComponent>();
 
@@ -30,7 +37,6 @@ namespace SS14.Server.GameObjects
             Register<SpriteComponent>();
             Register<TransformComponent>();
             RegisterReference<TransformComponent, ITransformComponent>();
-            RegisterReference<TransformComponent, IServerTransformComponent>();
 
             Register<ClickableComponent>();
             RegisterReference<ClickableComponent, IClickableComponent>();
@@ -40,6 +46,12 @@ namespace SS14.Server.GameObjects
 
             Register<AiControllerComponent>();
             Register<AppearanceComponent>();
+            Register<SnapGridComponent>();
+
+            Register<ServerUserInterfaceComponent>();
+            RegisterReference<ServerUserInterfaceComponent, SharedUserInterfaceComponent>();
+
+            Register<IgnorePauseComponent>();
         }
     }
 }

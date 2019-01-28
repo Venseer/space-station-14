@@ -4,16 +4,15 @@ using SS14.Shared.Reflection;
 
 namespace SS14.Client.UserInterface.CustomControls
 {
-    [Reflect(false)]
     public class FPSCounter : Label
     {
         protected override void Initialize()
         {
             base.Initialize();
 
-            AddColorOverride("font_color_shadow", Color.Black);
-            AddConstantOverride("shadow_offset_x", 1);
-            AddConstantOverride("shadow_offset_y", 1);
+            FontColorShadowOverride = Color.Black;
+            ShadowOffsetXOverride = 1;
+            ShadowOffsetYOverride = 1;
 
             MouseFilter = MouseFilterMode.Ignore;
         }
@@ -24,6 +23,7 @@ namespace SS14.Client.UserInterface.CustomControls
             {
                 return;
             }
+
             var fps = Godot.Performance.GetMonitor(Godot.Performance.Monitor.TimeFps);
             Text = $"FPS: {fps}";
         }

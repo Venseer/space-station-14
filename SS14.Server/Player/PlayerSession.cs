@@ -3,65 +3,57 @@ using SS14.Server.Interfaces.Player;
 using SS14.Shared.GameStates;
 using SS14.Shared.Interfaces.GameObjects;
 using SS14.Shared.IoC;
-using SS14.Shared.Log;
 using SS14.Server.GameObjects;
 using System;
 using SS14.Server.Interfaces;
 using SS14.Shared.Enums;
 using SS14.Shared.GameObjects;
 using SS14.Shared.Interfaces.Network;
-using SS14.Shared.Network.Messages;
-using SS14.Shared.Players;
+using SS14.Shared.Network;
+using SS14.Shared.ViewVariables;
 
 namespace SS14.Server.Player
 {
     /// <summary>
     /// This is the session of a connected client.
     /// </summary>
-    public class PlayerSession : IPlayerSession
+    internal class PlayerSession : IPlayerSession
     {
         private readonly PlayerManager _playerManager;
         public readonly PlayerState PlayerState;
 
-        public PlayerSession(PlayerManager playerManager, INetChannel client, PlayerIndex index)
+        public PlayerSession(PlayerManager playerManager, INetChannel client, PlayerData data)
         {
             _playerManager = playerManager;
-            Index = index;
+            SessionId = client.SessionId;
+            _data = data;
 
             PlayerState = new PlayerState
             {
-                Uuid = client.ConnectionId,
-                Index = index,
+                SessionId = client.SessionId,
             };
 
             ConnectedClient = client;
 
-            Input = new PlayerInput();
-
             UpdatePlayerState();
         }
 
+        [ViewVariables]
         public INetChannel ConnectedClient { get; }
 
-        public IEntity AttachedEntity { get; set; }
+        [ViewVariables]
+        public IEntity AttachedEntity { get; private set; }
+
+        [ViewVariables]
         public EntityUid? AttachedEntityUid => AttachedEntity?.Uid;
 
-        private string _name = "<TERU-SAMA>";
         private SessionStatus _status = SessionStatus.Connecting;
 
         /// <inheritdoc />
-        public string Name
-        {
-            get => _name;
-            set
-            {
-                if (string.IsNullOrWhiteSpace(value))
-                    return;
-                _name = value;
-            }
-        }
+        public string Name => SessionId.Username;
 
         /// <inheritdoc />
+        [ViewVariables]
         public SessionStatus Status
         {
             get => _status;
@@ -72,10 +64,12 @@ namespace SS14.Server.Player
         public DateTime ConnectedTime { get; private set; }
 
         /// <inheritdoc />
-        public PlayerIndex Index { get; }
+        [ViewVariables]
+        public NetSessionId SessionId { get; }
 
-        public PlayerInput Input { get; }
-        IPlayerInput IPlayerSession.Input => Input;
+        readonly PlayerData _data;
+        [ViewVariables]
+        public IPlayerData Data => _data;
 
         /// <inheritdoc />
         public event EventHandler<SessionStatusEventArgs> PlayerStatusChanged;
@@ -96,6 +90,11 @@ namespace SS14.Server.Player
         {
             DetachFromEntity();
 
+            if (a == null)
+            {
+                return;
+            }
+
             var actorComponent = a.AddComponent<BasicActorComponent>();
             if (a.HasComponent<IMoverComponent>())
             {
@@ -107,7 +106,6 @@ namespace SS14.Server.Player
 
             AttachedEntity = a;
             a.SendMessage(actorComponent, new PlayerAttachedMsg(this));
-            SendAttachMessage();
             SetAttachedEntityName();
             UpdatePlayerState();
         }
@@ -128,15 +126,6 @@ namespace SS14.Server.Player
         }
 
         /// <inheritdoc />
-        public void SetName(string name)
-        {
-            Name = name;
-            Logger.Info($"[SRV] {ConnectedClient.RemoteAddress}: Player set name: {Name}");
-            SetAttachedEntityName();
-            UpdatePlayerState();
-        }
-
-        /// <inheritdoc />
         public void OnConnect()
         {
             ConnectedTime = DateTime.Now;
@@ -153,33 +142,6 @@ namespace SS14.Server.Player
             UpdatePlayerState();
         }
 
-        /// <inheritdoc />
-        public void AddPostProcessingEffect(PostProcessingEffectType type, float duration)
-        {
-            var net = IoCManager.Resolve<IServerNetManager>();
-            var message = net.CreateNetMessage<MsgSession>();
-
-            message.MsgType = PlayerSessionMessage.AddPostProcessingEffect;
-            message.PpType = type;
-            message.PpDuration = duration;
-
-            net.ServerSendMessage(message, ConnectedClient);
-        }
-
-        private void SendAttachMessage()
-        {
-            if (AttachedEntity == null)
-                throw new Exception("Cannot attach player session to entity: No entity attached.");
-
-            var net = IoCManager.Resolve<IServerNetManager>();
-            var message = net.CreateNetMessage<MsgSession>();
-
-            message.MsgType = PlayerSessionMessage.AttachToEntity;
-            message.Uid = AttachedEntity.Uid;
-
-            net.ServerSendMessage(message, ConnectedClient);
-        }
-
         private void SetAttachedEntityName()
         {
             if (Name != null && AttachedEntity != null)
@@ -188,22 +150,12 @@ namespace SS14.Server.Player
             }
         }
 
-        /// <inheritdoc />
-        public void JoinLobby()
-        {
-            DetachFromEntity();
-            Status = SessionStatus.InLobby;
-            UpdatePlayerState();
-        }
-
         /// <summary>
         ///     Causes the session to switch from the lobby to the game.
         /// </summary>
         public void JoinGame()
         {
-            var baseServer = IoCManager.Resolve<IBaseServer>();
-
-            if (ConnectedClient == null || Status == SessionStatus.InGame || baseServer.RunLevel != ServerRunLevel.Game)
+            if (ConnectedClient == null || Status == SessionStatus.InGame)
                 return;
 
             Status = SessionStatus.InGame;
@@ -225,7 +177,7 @@ namespace SS14.Server.Player
         /// <inheritdoc />
         public override string ToString()
         {
-            return $"[{Index}]{Name}";
+            return SessionId.ToString();
         }
     }
 }
